@@ -10,16 +10,22 @@
 
 ```text
 pi-unifan-zh/
-├── package.json              # 根包配置（支持整包一键安装）
+├── package.json              # 根包配置（支持整包一键安装所有扩展与技能）
 ├── tsconfig.json             # TypeScript 编译配置
 ├── .gitignore                # Git 忽略规则
 ├── README.md                 # 仓库主说明文档
 ├── extensions/               # 📦 独立插件集目录
-│   └── sessions/             # 📜 历史会话管理器（双栏实时预览与恢复·中文增强版）
-│       ├── package.json      # 独立包配置（支持单独发布与单独安装）
-│       ├── index.ts          # TUI 交互与命令逻辑
-│       ├── sessions.ts       # 会话数据提取与格式化
-│       └── README.md         # 插件独立使用说明
+│   ├── sessions/             # 📜 历史会话管理器（双栏实时预览与恢复·中文增强版）
+│   │   ├── package.json      # 独立包配置
+│   │   ├── index.ts          # TUI 交互与命令逻辑
+│   │   ├── sessions.ts       # 会话数据提取与格式化
+│   │   └── README.md         # 插件说明
+│   └── review/               # 🔍 AI 并发代码审查（5 专家并发 + 门禁裁判·中文增强版）
+│       ├── package.json      # 独立包配置
+│       ├── index.ts          # 命令入口与工作流注册
+│       ├── agents/           # 6 大专家与门禁 Prompt 定义
+│       ├── src/              # 核心审查逻辑与中文报告渲染器
+│       └── README.md         # 插件说明
 └── skills/                   # 🎯 自定义技能目录（存放自定义 SKILL.md）
     └── README.md
 ```
@@ -44,11 +50,16 @@ pi install D:/program/my/pi-unifan-zh
 
 ### 模式 B：按需单独安装单个插件
 
-每个插件都位于 `extensions/<插件名>/` 下，并自带独立的 `package.json`，支持独立安装与卸载：
+每个插件都位于 `extensions/<插件名>/` 下，自带独立的 `package.json`：
 
-#### 仅安装 `sessions` 历史会话管理器：
+#### 1. 仅安装 `sessions`（历史会话管理器·中文版）：
 ```bash
 pi install D:/program/my/pi-unifan-zh/extensions/sessions
+```
+
+#### 2. 仅安装 `review`（AI 并发代码审查·中文版）：
+```bash
+pi install D:/program/my/pi-unifan-zh/extensions/review
 ```
 
 ---
@@ -63,6 +74,18 @@ pi install D:/program/my/pi-unifan-zh/extensions/sessions
   - 界面与时间提示（刚刚/X分钟前/昨天）全面中文化。
   - 独立运行，零多余 Token 消耗，不引发卡顿。
 
+### 2. 🔍 `review`（AI 并发代码审查·中文版）
+- **命令**：
+  - `/review`：全量 5 专家深度并发审查 + 门禁裁判。
+  - `/review --lite`：极速单专家快速体检（超省 Token）。
+  - `/review 重点看并发安全`：带侧重点定制审查。
+  - `/review-show`：重新显示最近一次审查报告。
+  - `/review-agents`：查看各专家代理状态与模型分配。
+- **特性**：
+  - 5 个专业 AI 审查专家（Bug、安全、规范、历史回归、注释）并发排查。
+  - 1 个门禁总裁判（Gate AI）智能去重并过滤误报，给出最终裁决。
+  - 报告全中文结构化展示（致命阻断 / 严重 / 次要 / 细节优化）。
+
 ---
 
 ## 🛠️ 后续如何开发新插件？
@@ -74,6 +97,7 @@ pi install D:/program/my/pi-unifan-zh/extensions/sessions
    "pi": {
      "extensions": [
        "./extensions/sessions/index.ts",
+       "./extensions/review/index.ts",
        "./extensions/my-tool/index.ts"
      ]
    }

@@ -1,0 +1,38 @@
+﻿{
+  "name": "@unifan/pi-review-zh",
+  "version": "1.0.0",
+  "description": "Pi AI 并发代码审查扩展（多专家子代理并发 + 门禁裁判系统，中文增强版）",
+  "type": "module",
+  "license": "MIT",
+  "author": "821869798",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/821869798/pi-unifan-zh.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "code-review",
+    "reviewer",
+    "chinese"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.74.0 <1.0.0",
+    "@earendil-works/pi-coding-agent": ">=0.74.0 <1.0.0",
+    "pi-subagents": ">=0.41.0 <1.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "subagents": {
+      "agents": [
+        "./agents"
+      ]
+    }
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  }
+}
