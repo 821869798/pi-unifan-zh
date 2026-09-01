@@ -10,13 +10,13 @@
 
 ```text
 pi-unifan-zh/
-├── package.json              # 根包配置（支持整包一键 pi install）
+├── package.json              # 根包配置（支持整包一键安装）
 ├── tsconfig.json             # TypeScript 编译配置
 ├── .gitignore                # Git 忽略规则
 ├── README.md                 # 仓库主说明文档
-├── extensions/               # 独立扩展目录
+├── extensions/               # 📦 独立插件集目录
 │   └── sessions/             # 📜 历史会话管理器（双栏实时预览与恢复·中文增强版）
-│       ├── package.json      # 独立包配置（支持单独发布与单独 pi install）
+│       ├── package.json      # 独立包配置（支持单独发布与单独安装）
 │       ├── index.ts          # TUI 交互与命令逻辑
 │       ├── sessions.ts       # 会话数据提取与格式化
 │       └── README.md         # 插件独立使用说明
@@ -30,14 +30,14 @@ pi-unifan-zh/
 
 ### 模式 A：一键安装整包（包含库内所有插件与技能）
 
-#### 1. 本地安装测试：
+#### 1. 远程一键安装（推荐）：
 ```bash
-pi install D:/program/my/pi-unifan-zh
+pi install git:github.com/821869798/pi-unifan-zh
 ```
 
-#### 2. 推送到 GitHub 后的远程安装：
+#### 2. 本地安装测试：
 ```bash
-pi install git:github.com/你的用户名/pi-unifan-zh
+pi install D:/program/my/pi-unifan-zh
 ```
 
 ---
@@ -58,7 +58,7 @@ pi install D:/program/my/pi-unifan-zh/extensions/sessions
 ### 1. 📜 `sessions`（历史会话管理器·中文版）
 - **命令**：`/sessions`
 - **特性**：
-  - 双栏全屏 TUI 视图（左侧选会话，右侧毫秒级实时滚屏预览完整对话）。
+  - 双栏全屏 TUI 视图（左侧选会话与 Git 变更统计，右侧毫秒级实时滚屏预览完整对话）。
   - 支持 `◆ 用户`、`● 助手`、`◌ 思考过程`、`▸ 工具调用` 与折叠。
   - 界面与时间提示（刚刚/X分钟前/昨天）全面中文化。
   - 独立运行，零多余 Token 消耗，不引发卡顿。

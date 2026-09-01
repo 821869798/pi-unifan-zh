@@ -4,6 +4,10 @@
   "description": "Pi Coding Agent 中文扩展全家桶与独立插件集",
   "type": "module",
   "main": "extensions/sessions/index.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/821869798/pi-unifan-zh.git"
+  },
   "pi": {
     "extensions": [
       "./extensions/sessions/index.ts"
@@ -19,7 +23,7 @@
     "sessions",
     "tui"
   ],
-  "author": "unifan",
+  "author": "821869798",
   "license": "MIT"
 }
 
