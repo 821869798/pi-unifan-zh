@@ -1,0 +1,21 @@
+{
+  "name": "@unifan/pi-sessions-zh",
+  "version": "1.0.0",
+  "description": "Pi 历史会话管理器（双栏可视化 TUI 预览与恢复，中文增强版）",
+  "type": "module",
+  "main": "./index.ts",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "keywords": [
+    "pi-extension",
+    "pi-sessions",
+    "chinese",
+    "tui"
+  ],
+  "author": "unifan",
+  "license": "MIT"
+}
+

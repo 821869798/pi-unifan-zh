@@ -1,0 +1,25 @@
+{
+  "name": "pi-unifan-zh",
+  "version": "1.0.0",
+  "description": "Pi Coding Agent 中文扩展全家桶与独立插件集",
+  "type": "module",
+  "main": "extensions/sessions/index.ts",
+  "pi": {
+    "extensions": [
+      "./extensions/sessions/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "keywords": [
+    "pi-extension",
+    "pi-coding-agent",
+    "chinese",
+    "sessions",
+    "tui"
+  ],
+  "author": "unifan",
+  "license": "MIT"
+}
+
