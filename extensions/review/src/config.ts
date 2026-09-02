@@ -24,7 +24,7 @@ import type { PiReviewConfig, ReviewerSpec, RoutingMode, VerdictPolicy } from ".
  * reviewers stay on "inherit" to follow the parent session's stronger model.
  * Override via config.json (`gate.model`) or `--gate-model`.
  */
-export const DEFAULT_GATE_MODEL = "anthropic/claude-haiku-4-5";
+export const DEFAULT_GATE_MODEL = "inherit";
 
 /** Default reviewer and gate config shipped with the package (v0.7). */
 export const DEFAULT_CONFIG: PiReviewConfig = {

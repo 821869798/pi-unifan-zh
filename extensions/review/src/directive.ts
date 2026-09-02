@@ -340,7 +340,12 @@ export function buildWorkflowScript(input: {
 		lines.push(`    agent: ${JSON.stringify(LEAN_GATE_AGENT)},`);
 		lines.push("    task: gateTask,");
 		lines.push(`    cwd: ${JSON.stringify(workspacePath)},`);
-		lines.push(`    model: ${JSON.stringify(gateModelWithThinking)},`);
+		if (gateModel && gateModel !== "inherit") {
+			lines.push(`    model: ${JSON.stringify(gateModelWithThinking)},`);
+		}
+		if (gateThinking && gateThinking !== "off" && gateThinking !== "false") {
+			lines.push(`    thinking: ${JSON.stringify(gateThinking)},`);
+		}
 		lines.push(`    toolBudget: { soft: ${budgets.gateToolBudget.soft}, hard: ${budgets.gateToolBudget.hard} },`);
 		lines.push(`    turnBudget: { maxTurns: ${budgets.gateTurnBudget.maxTurns}, graceTurns: ${budgets.gateTurnBudget.graceTurns} },`);
 		lines.push("  });");
