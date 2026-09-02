@@ -1483,16 +1483,4 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		description: "双会话审查接力闭环 (自动识别：开发会话自动改代码并总结，审查会话只读复核直到可提交)",
 		handler: handleReviewSync,
 	});
-
-	// 别名：/review-flow
-	pi.registerCommand("review-flow", {
-		description: "双会话审查接力闭环 (/review-sync 别名)",
-		handler: handleReviewSync,
-	});
-
-	// 别名：/review-relay
-	pi.registerCommand("review-relay", {
-		description: "双会话审查接力闭环 (/review-sync 别名)",
-		handler: handleReviewSync,
-	});
 }
