@@ -1,6 +1,6 @@
 {
   "name": "@unifan/pi-unifan-zh",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Pi Coding Agent 中文扩展全家桶与独立插件集",
   "type": "module",
   "main": "extensions/sessions/index.ts",
