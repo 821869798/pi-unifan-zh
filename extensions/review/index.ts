@@ -91,6 +91,54 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("review-lite", {
+		description: "极速单兵代码审查 (无门禁，3~5秒出结果，极省 Token)",
+		handler: async (args, ctx) => {
+			const notify = (msg: string, level: "info" | "warning" | "error" = "info") => {
+				if (ctx.hasUI) ctx.ui.notify(msg, level);
+				else console.log(`pi-review: ${msg}`);
+			};
+			try {
+				const { config, legacyWarnings } = loadConfig();
+				for (const w of legacyWarnings) notify(`pi-review 提示: ${w}`, "warning");
+				pi.sendMessage({ customType: "pi-review", content: args ? `/review-lite ${args}` : "/review-lite", display: true });
+				const prepared = await prepareRun({ cwd: ctx.cwd, input: args, lite: true });
+				if (!prepared) {
+					notify("没有检测到需要审查的内容 (未找到修改、PR 或非 Git 仓库)。", "info");
+					return;
+				}
+				pi.sendMessage({ customType: "pi-review-directive", content: prepared.directiveText, display: false }, { triggerTurn: true });
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				notify(`极速代码审查启动失败: ${message}`, "error");
+			}
+		},
+	});
+
+	pi.registerCommand("review-perf", {
+		description: "专项性能与基准测试审查 (GC堆分配/算法复杂度/Benchmark探针)",
+		handler: async (args, ctx) => {
+			const notify = (msg: string, level: "info" | "warning" | "error" = "info") => {
+				if (ctx.hasUI) ctx.ui.notify(msg, level);
+				else console.log(`pi-review: ${msg}`);
+			};
+			try {
+				const { config, legacyWarnings } = loadConfig();
+				for (const w of legacyWarnings) notify(`pi-review 提示: ${w}`, "warning");
+				pi.sendMessage({ customType: "pi-review", content: args ? `/review-perf ${args}` : "/review-perf", display: true });
+				const prepared = await prepareRun({ cwd: ctx.cwd, input: args, perf: true });
+				if (!prepared) {
+					notify("没有检测到需要审查的内容 (未找到修改、PR 或非 Git 仓库)。", "info");
+					return;
+				}
+				pi.sendMessage({ customType: "pi-review-directive", content: prepared.directiveText, display: false }, { triggerTurn: true });
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				notify(`性能审查启动失败: ${message}`, "error");
+			}
+		},
+	});
+
 	pi.registerCommand("review-config", {
 		description: "编辑代码审查配置 (~/.pi/agent/pi-review.json)",
 		handler: async (_args, ctx) => {
