@@ -45,6 +45,27 @@ export async function getChangedFiles(cwd: string): Promise<string[]> {
 		.filter(Boolean);
 }
 
+export async function getUnpushedCommits(cwd: string): Promise<string[]> {
+	const res = await runGit(cwd, ["log", "@{u}..HEAD", "--oneline"]);
+	if (res.ok && res.stdout.trim()) {
+		return res.stdout.trim().split("\n").filter(Boolean);
+	}
+	const statusRes = await runGit(cwd, ["status", "--porcelain=v1", "-b"]);
+	if (statusRes.ok) {
+		const match = statusRes.stdout.match(/\[ahead\s+(\d+)\]/);
+		if (match && match[1]) {
+			const count = parseInt(match[1], 10);
+			if (count > 0) {
+				const logRes = await runGit(cwd, ["log", "-n", String(count), "--oneline"]);
+				if (logRes.ok && logRes.stdout.trim()) {
+					return logRes.stdout.trim().split("\n").filter(Boolean);
+				}
+			}
+		}
+	}
+	return [];
+}
+
 export async function stageAll(cwd: string): Promise<boolean> {
 	const res = await runGit(cwd, ["add", "-A"]);
 	return res.ok;
@@ -59,12 +80,22 @@ export async function pushCurrentBranch(
 	cwd: string,
 	onLog?: (msg: string) => void,
 ): Promise<{ ok: boolean; output: string; autoRebased?: boolean }> {
-	const initialPush = await runGit(cwd, ["push"]);
+	let initialPush = await runGit(cwd, ["push"]);
 	if (initialPush.ok) {
 		return { ok: true, output: initialPush.stdout || "推送成功" };
 	}
 
-	const pushError = `${initialPush.stderr} ${initialPush.stdout}`.toLowerCase();
+	let pushError = `${initialPush.stderr} ${initialPush.stdout}`.toLowerCase();
+
+	if (pushError.includes("no upstream branch") || pushError.includes("set-upstream")) {
+		if (onLog) onLog("未关联远端分支，正在自动关联并推送 (git push -u origin HEAD)...");
+		const setUpstream = await runGit(cwd, ["push", "-u", "origin", "HEAD"]);
+		if (setUpstream.ok) {
+			return { ok: true, output: setUpstream.stdout || "推送成功" };
+		}
+		pushError = `${setUpstream.stderr} ${setUpstream.stdout}`.toLowerCase();
+	}
+
 	const needsPull =
 		pushError.includes("fetch first") ||
 		pushError.includes("non-fast-forward") ||

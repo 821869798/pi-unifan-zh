@@ -3,6 +3,7 @@ import {
 	commitWithMsg,
 	getChangedFiles,
 	getStagedDiff,
+	getUnpushedCommits,
 	getUnstagedDiff,
 	isGitRepo,
 	pushCurrentBranch,
@@ -114,7 +115,28 @@ export default function (pi: ExtensionAPI) {
 		const changedFiles = await getChangedFiles(ctx.cwd);
 
 		if (!stagedDiff && !unstagedDiff) {
-			notify("当前工作区没有任何修改，无需提交。", "info");
+			if (andPush) {
+				const unpushed = await getUnpushedCommits(ctx.cwd);
+				if (unpushed.length > 0) {
+					notify(`当前工作区干净，但检测到有 ${unpushed.length} 个未推送提交，正在推送到远端...`, "info");
+					const pushRes = await pushCurrentBranch(ctx.cwd, (msg) => notify(msg, "info"));
+					if (pushRes.ok) {
+						const successMsg = pushRes.autoRebased
+							? `🚀 已自动完成变基 (pull --rebase)，并成功将 ${unpushed.length} 个本地提交推送至远端！`
+							: `🚀 成功将本地未推送的 ${unpushed.length} 个提交推送至远端！`;
+						notify(successMsg, "info");
+						pi.sendMessage({
+							customType: "pi-commit-result",
+							content: `### 🚀 远端推送完成\n\n当前工作区无未提交的修改，已成功将本地 **${unpushed.length} 个历史提交** 推送至远端分支：\n\n\`\`\`text\n${unpushed.join("\n")}\n\`\`\`\n\n${successMsg}`,
+							display: true,
+						});
+					} else {
+						notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
+					}
+					return;
+				}
+			}
+			notify("当前工作区干净，且所有本地提交均已同步至远端，无需提交和推送。", "info");
 			return;
 		}
 
@@ -178,7 +200,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("commit-push", {
-		description: "智能 Git 提交并推流：生成标准中文 Commit 后自动提交并执行 git push (支持自动变基重试)",
+		description: "智能 Git 提交并推流：生成标准中文 Commit 后自动提交并执行 git push (支持自动变基与未推送提交自动推流)",
 		handler: async (args, ctx) => {
 			await handleCommitCommand(args, ctx, true);
 		},
