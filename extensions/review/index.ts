@@ -1349,7 +1349,6 @@ export default function reviewExtension(pi: ExtensionAPI) {
 					ctx.ui.notify(`返回失败: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}
 			}
-		}
 	};
 
 	pi.registerCommand("review-end", {
