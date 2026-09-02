@@ -42,8 +42,7 @@ export function coerceReviewerOutput(r: ReviewerWorkflowResult): {
 			coverage: { filesChecked: [], commandsRun: [], limitations: [r.error ?? "审查专家执行失败"] },
 		};
 	}
-	const md = r.output ?? "";
-	const skipped = /^\s*##\s*Summary\s*\n+\s*SKIPPED:/im.test(md) || /^\s*SKIPPED:/m.test(md);
+	const skipped = /^\s*##\s*(?:Summary|审查概述)\s*\n+\s*(?:SKIPPED|已跳过):/im.test(md) || /^\s*(?:SKIPPED|已跳过):/m.test(md);
 	return {
 		status: skipped ? "skipped" : "ok",
 		issues: [],

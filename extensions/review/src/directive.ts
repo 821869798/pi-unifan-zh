@@ -55,7 +55,7 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	blocks.push("");
 	blocks.push("## 硬性规则（严禁违反）");
 	blocks.push("");
-	blocks.push("- **语言要求**：所有面向用户的输出（包括工作流待办清单、状态汇报、问题总结与回复）**必须使用纯正中文**。");
+	blocks.push("- **语言要求**：所有思维链（Thinking）、推理分析过程、面向用户的输出（包括工作流待办清单、状态汇报、问题总结与回复）**必须 100% 全程使用纯正中文**，严禁使用英文思考或撰写英文回复。");
 	blocks.push("- 在本次审查中**只能且必须调用一次** `subagent` 工具：即第 2 步的 workflowScript 调用。");
 	blocks.push(
 		isSingle
@@ -235,7 +235,7 @@ export function buildWorkflowScript(input: {
 	const gateOn = !lite && gateEnabled;
 
 	const READ_ONLY_PREFIX =
-		"只读任务（READ-ONLY）——仅执行审查分析与基准测试。严禁修改源码文件。仅返回审查发现。所有分析总结、问题描述与建议必须使用纯正中文。";
+		"【最高优先级语言指令】只读审查任务：所有思维链（Thinking）、推理过程、问题分析与输出报告必须 100% 使用纯正中文！严禁在思考或报告中输出任何英文！严禁修改源码文件。";
 
 	const lines: string[] = [];
 	lines.push("");
@@ -250,7 +250,7 @@ export function buildWorkflowScript(input: {
 			`读取 ${JSON.stringify(diffPath)} 作为改动内容——diff 是权威的修改记录，工作区文件仅作上下文参考。若工作区文件与 diff 存在差异，以 diff 为准并在 coverage.limitations 中说明。所有问题描述必须使用中文。`,
 			`同时读取 ${JSON.stringify(manifestPath)} 获取改动概要（文档变更状态、文件列表、规则文件路径）。禁止通过外部命令重复拉取。`,
 			`你的当前工作区为目标工作区 (${JSON.stringify(workspacePath)})。在此目录下执行必要的 read/grep。`,
-			"在额度内完成分析；最终回复必须输出格式规范的 Markdown 审查报告（包含中文 Summary / Findings / Coverage 章节）并停止。所有问题描述、证据引用和总结必须使用纯正中文。",
+			"在额度内完成分析；最终回复必须输出格式规范的 Markdown 审查报告（包含纯中文 审查概述 / 缺陷清单 / 审查覆盖 章节）并停止。所有思考分析、问题描述、证据引用和总结必须 100% 使用纯正中文，严禁使用英文。",
 			"严禁读取 plan.md, progress.md, 以及 .pi-subagents/ 目录下的任何文件或 node_modules。",
 			"优先使用 Read/Grep。若使用 bash，仅限简单的单条命令（禁止 &&/||/; 等复合命令）。",
 		];
@@ -322,7 +322,7 @@ export function buildWorkflowScript(input: {
 			READ_ONLY_PREFIX,
 			`读取 ${JSON.stringify(diffPath)} 作为改动内容——diff 是权威的修改记录，工作区文件仅作上下文参考。所有问题描述必须使用中文。`,
 			`你的当前工作区为目标工作区 (${JSON.stringify(workspacePath)})。在此目录下执行必要的 read/grep。`,
-			"在额度内完成分析；最终回复必须输出格式规范的 Markdown 审查报告（包含中文 Summary / Findings / Coverage 章节）并停止。所有问题描述、证据引用和总结必须使用纯正中文。",
+			"在额度内完成分析；最终回复必须输出格式规范的 Markdown 审查报告（包含纯中文 审查概述 / 缺陷清单 / 审查覆盖 章节）并停止。所有思考分析、问题描述、证据引用和总结必须 100% 使用纯正中文，严禁使用英文。",
 		];
 		if (r.id === "lite-review") {
 			taskParts.push(
@@ -362,7 +362,7 @@ export function buildWorkflowScript(input: {
 			`对 ${targetLabel} 的所有专家审查发现进行综合仲裁与去重。所有分析、裁决理由与总结必须使用纯正中文。`,
 			`完整 diff 位于 ${JSON.stringify(diffPath)}，当前工作区为目标工作区——你可以且应当亲自核验候选问题。`,
 			`置信度阈值 ${threshold}：过滤掉最终置信度小于 ${threshold} 的假警报与无意义建议。`,
-			`输入为各专家的 Markdown 报告（每个专家包含 ## Summary / ## Findings / ## Coverage）。`,
+			`输入为各专家的 Markdown 报告（每个专家包含 ## 审查概述 / ## 缺陷清单 / ## 审查覆盖）。`,
 			`重新评估每个问题的置信度（1–10 分）。对每个 blocker（致命）或 major（严重）候选问题，首先通过阅读 diff 块和目标文件进行核验，并在 disposition 的 reason 中用中文说明核验结果。`,
 			`若未经你自己核验证实，严禁将候选问题评分提升至 8 分以上。`,
 			`若因缺少上下文或 diff 截断而无法核验某个 blocker/major 问题，切勿静默丢弃：保留原置信度并在 reason 前缀注明 "未核验:"，交由人工判断。`,

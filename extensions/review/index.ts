@@ -145,7 +145,7 @@ ${callsExample}
    - 全面综合各专家的审查意见，对相同问题进行去重，剔除误报和低置信度内容。
    - 严格按照《核心代码审查准则》的 **[P0~P3]** 等级标准排布审查清单。
    - 给出最终综合裁决与一句话中文总评。
-3. **语言要求**：所有输出必须为纯正中文。`;
+3. **语言强制要求**：所有任务入参、思考分析过程、综合汇报与最终报告必须 100% 为纯正中文，严禁出现任何英文段落或未翻译小标题！`;
 }
 
 function setReviewWidget(ctx: ExtensionContext, active: boolean) {
@@ -225,9 +225,11 @@ const FOLDER_REVIEW_PROMPT =
 	"请对以下目录/文件路径的代码进行快照审查：{paths}。注意这是全量快照审查（非 diff 对比）。请直接读取这些文件并给出按优先级排序的具体审查发现。所有输出必须使用纯正中文。";
 
 // 权威的中文代码审查准则 (基于 Codex 准则精炼与本土化)
-const REVIEW_RUBRIC = `# 核心代码审查准则（资深工程师视角）
+const REVIEW_RUBRIC = `> 🚨【最高优先级语言要求】：你的所有思维链（Thinking）、推理分析、工具调用说明、审查发现与最终裁决结论必须 100% 全程使用纯正中文！绝对严禁输出任何英文段落、英文标题、英文思考或英文总结！
 
-你正在作为一名资深技术专家对另一位工程师提交的代码改动进行严格的代码审查。你的目标是帮作者把关并拦截真实风险，给出清晰、可落地、带事实证据的中文审查意见。
+# 核心代码审查准则（资深工程师视角）
+
+你正在作为一名资深技术专家对另一位工程师提交的代码改动进行严格的代码审查。你的目标是帮作者把关并拦截真实风险，给出清晰、可落地、带事实证据的纯中文审查意见。
 
 ## 重点排查范围（排查什么）
 1. **代码正确性与边界处理**：逻辑缺陷、空指针/未定义引用、边界越界、生命周期异常、未捕获的运行时异常。
@@ -261,8 +263,10 @@ const REVIEW_RUBRIC = `# 核心代码审查准则（资深工程师视角）
   - **修改建议**：给出最小化的修复思路或直接附带精准的代码替换块（可使用 \`\`\`suggestion 代码块）。
 
 ### 综合裁决
-- **最终结论**：\`通过 (Approved)\` 或 \`需要修改 (Request Changes - 存在 P0/P1 阻塞问题)\`
-- **总结说明**：一句话中文总评。`;
+- **最终结论**：\`通过\` 或 \`需要修改 (存在 P0/P1 阻塞问题)\`
+- **总结说明**：一句话中文总评。
+
+> 🚨【语言警示】：全篇所有内容必须 100% 使用纯正中文，严禁包含任何未翻译的英文短语或小标题！`;
 
 /**
  * 尝试加载项目本地的专属审查准则文件 (REVIEW_GUIDELINES.md 或 AGENTS.md / CLAUDE.md)
@@ -969,7 +973,9 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		const hint = getUserFacingHint(target);
 		const projectGuidelines = await loadProjectReviewGuidelines(ctx.cwd);
 
-		let fullPrompt = REVIEW_RUBRIC;
+		const MANDATORY_CHINESE_HEADER = `> 🚨【核心语言指令 - 最高优先级】\n> 你的**所有思维链（Thinking）、中间分析过程、代码排查笔记、审查发现与最终裁决结论**必须 100% 全程使用纯正中文进行思考与撰写！绝对禁止输出任何英文思考段落、英文标题或英文总结！`;
+
+		let fullPrompt = `${MANDATORY_CHINESE_HEADER}\n\n${REVIEW_RUBRIC}`;
 
 		if (settings.mode === "subagents") {
 			fullPrompt += `\n\n---\n\n${buildSubagentOrchestrationPrompt(settings.concurrency, settings.gateEnabled)}`;
@@ -980,6 +986,8 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		if (projectGuidelines) {
 			fullPrompt += `\n\n## 本项目附加规范指南\n\n${projectGuidelines}`;
 		}
+
+		fullPrompt += `\n\n> 🚨【最终语言校验】：请再次检查你的输出，确保通篇 100% 均为流畅纯正的中文，绝无任何英文说明！`;
 
 		const modeLabel = settings.mode === "single" ? "单模型模式" : `多Subagent并发(${settings.concurrency}专家)`;
 		const modeHint = useFreshSession ? " (独立审查分支)" : "";
@@ -1188,18 +1196,20 @@ export default function reviewExtension(pi: ExtensionAPI) {
 	});
 
 	// 审查总结专用提示词
-	const REVIEW_SUMMARY_PROMPT = `我们即将结束代码审查并切回开发主对话。
+	const REVIEW_SUMMARY_PROMPT = `> 🚨【语言指令】：总结报告必须 100% 使用纯正中文，严禁使用英文！
+
+我们即将结束代码审查并切回开发主对话。
 请将本次代码审查分支中发现的所有核心问题、缺陷与建议生成一份结构清晰的中文整改总结。
 
 必须严格按以下格式输出总结（确保原样保留文件路径、行号与缺陷等级）：
 
-## 待办修复清单 (Next Steps)
+## 待办修复清单
 1. [需优先解决的 P0/P1 问题]
 
-## 代码审查发现归档 (Code Review Findings)
+## 代码审查发现归档
 
 ### [P0|P1|P2|P3] 问题标题
-- 位置：path/to/file.ext:行号
+- 位置：文件路径:行号
 - 说明：缺陷描述与引发场景
 - 修复：最小修复建议
 `;
