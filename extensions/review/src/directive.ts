@@ -1,19 +1,5 @@
 /**
- * Build the review directive injected into the main agent (hidden, via
- * `sendMessage` with `display:false` + `triggerTurn:true`).
- *
- * v0.7.0 contract (post-mortem from PR #18689 review):
- *   - chatProgress must be "auto" | "off" | "live-card" — anything else is
- *     rejected by pi-subagents schema validation.
- *   - Every reviewer child declares `cwd` (target workspace) and
- *     `outputSchema` so pi-subagents returns `result.structuredOutput`.
- *   - "inherit" reviewer models are NOT expanded into concrete model ids.
- *     The workflow script leaves `model:` off so the orchestrator keeps the
- *     inheritance link.
- *   - The gate consumes reviewer `structuredOutput` objects directly, never
- *     Markdown code fences.
- *   - Step 3 hands off to the `pi_review_report` tool, which is the only
- *     authoritative report renderer (deterministic code-side verdict).
+ * Build the review directive injected into the main agent.
  */
 import { writeFileSync } from "node:fs";
 
@@ -31,33 +17,17 @@ import type { ReviewerSpec, ReviewTarget } from "./types.js";
 export interface ReviewDirectiveInput {
 	target: ReviewTarget;
 	reviewers: ReviewerSpec[];
-	/** Resolved gate model id (from config.gate.model or --gate-model). */
 	gateModel: string;
-	/** Optional gate thinking from config (appended as model:thinking). */
 	gateThinking?: string;
 	threshold: number;
-	/** Verdict policy passed to the gate task (code-side authoritative). */
 	verdictPolicy?: "strict" | "legacy";
 	lite: boolean;
-	/** Set false to skip the gate while keeping the full reviewer roster. */
 	gateEnabled?: boolean;
 	cwd: string;
-	/** Absolute path to the plugin-prepared target workspace (reviewer cwd). */
 	workspacePath: string;
-	/** Absolute path to the run manifest.json. */
 	manifestPath: string;
-	/** Absolute path to the captured change.diff. */
 	diffPath: string;
-	/**
-	 * Absolute path to write the raw workflowScript text. When set, the raw
-	 * script is persisted here and the directive points the main agent at it
-	 * (retry path) instead of asking it to re-derive the script from a
-	 * double-escaped JSON string — see the 2026-08-25 PR 19395 incident where
-	 * the main agent's copy/unescape of the script produced a syntax error
-	 * three times and then drifted into hand-debugging.
-	 */
 	workflowPath?: string;
-	/** Optional turnBudget override from config.budgets. */
 	budgets?: LeanBudgetSpec;
 }
 
@@ -69,73 +39,74 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	const gateModelWithThinking = withThinkingSuffix(gateModel, gateThinking);
 	const blocks: string[] = [];
 
-	blocks.push("# Code review (token-lean)");
+	blocks.push("# 代码审查流程 (极简 Token 模式)");
 	blocks.push("");
 	if (target.userContext?.trim()) {
-		blocks.push(`**User request:** ${target.userContext.trim()}`);
+		blocks.push(`**用户指令/侧重点:** ${target.userContext.trim()}`);
 		blocks.push("");
 	}
 	blocks.push(
-		`Review the change (${target.label}). The plugin has already prepared the target workspace, diff and run manifest. Run one workflowScript that fans out ${reviewers.length} reviewer${reviewers.length === 1 ? "" : "s"}${lite ? " (lite)" : ""}${gateOn ? " + inline gate" : ""}, then call the \`pi_review_report\` tool to finalize the report. Do not re-write or summarize findings in chat.`,
+		`请对本次代码改动 (${target.label}) 进行审查。插件已准备好目标工作区、diff 文件及运行清单。你需要执行一次 workflowScript 启动 ${reviewers.length} 个并发审查专家${lite ? " (极速单兵模式)" : ""}${gateOn ? " + 门禁裁判长" : ""}，随后调用 \`pi_review_report\` 工具完成报告渲染与归档。切勿在聊天中直接重复书写未加工的原始问题细节。`,
 	);
 	blocks.push("");
-	blocks.push("## Hard rules (do not violate)");
+	blocks.push("## 硬性规则（严禁违反）");
 	blocks.push("");
-	blocks.push("- Call `subagent` **exactly one** time in this whole review: the Step 2 workflowScript call.");
+	blocks.push("- **语言要求**：所有面向用户的输出（包括工作流待办清单、状态汇报、问题总结与回复）**必须使用纯正中文**。");
+	blocks.push("- 在本次审查中**只能且必须调用一次** `subagent` 工具：即第 2 步的 workflowScript 调用。");
 	blocks.push(
 		lite
-			? "- Step 2 must be a **single** `subagent({ workflowScript, async:false, ... })` that fans out the lite-reviewer via `runs.all([...])` — never more than one call."
+			? "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行单兵审查专家——严禁多次调用。"
 			: gateOn
-				? "- Step 2 must be a **single** `subagent({ workflowScript, async:false, ... })` that fans out **all** reviewers via `runs.all([...])` and runs the inline gate via `runs.run(\"gate\", ...)` — never one call per reviewer, never serial waves."
-				: "- Step 2 must be a **single** `subagent({ workflowScript, async:false, ... })` that fans out **all** reviewers via `runs.all([...])` (gate disabled in config) — never one call per reviewer, never serial waves.",
+				? "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行**所有**专家，并通过 `runs.run(\"gate\", ...)` 运行门禁裁判长——严禁每个专家单独调用一次，严禁串行多波次调用。"
+				: "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行**所有**专家——严禁多波次单独调用。",
 	);
 	blocks.push(
-		"- **Do not retry** or re-spawn if a reviewer times out, hits its turnBudget, returns partial output, or fails — `runs.all` collects failures as `{ ok:false }`; the script continues and you mark failures in the report.",
+		"- **切勿重试失败的子代理**：若某个专家超时、耗尽额度或报错，`runs.all` 会自动收集错误；流程继续进行并在最终报告中标注失败即可。",
 	);
-	const retryScriptHint = workflowPath ? `Read-tool \`${workflowPath}\`` : "the Read tool on the workflow.js file";
+	const retryScriptHint = workflowPath ? `使用 Read 工具读取 \`${workflowPath}\`` : "使用 Read 工具读取 workflow.js 文件";
 	blocks.push(
-		"- **Exception (script-level failure):** if the `subagent` call is rejected because the `workflowScript` **fails to parse** (no reviewer ever started — e.g. a syntax error in the script literal), retry **once**: use the " + retryScriptHint + " and repeat the call with exactly that file content as `workflowScript`. Do **not** hand-edit, re-quote, or fix the script text yourself — if the retry also fails, stop and notify the user. Do not retry any reviewer that already started and failed.",
+		"- **脚本级解析错误例外**：若 `subagent` 因 `workflowScript` 语法解析失败而拒绝执行（无任何专家启动），允许重试**一次**：" + retryScriptHint + " 并以该文件内容作为 `workflowScript` 重试。切勿手动篡改脚本内容。",
 	);
-	blocks.push("- **Do not** call `subagent` for verification, re-review, or rewriting the report.");
+	blocks.push("- **严禁**调用 `subagent` 进行额外的事后验证或重写报告。");
 	blocks.push(
-		"- **Never read `.pi-subagents/` (artifacts, transcripts, run metadata) or reconstruct findings from disk.** Findings for `pi_review_report` come exclusively from the workflow return value of the Step 2 call — files left there by earlier runs describe OTHER reviews (a real incident had a failed workflow followed by stale-artifact findings presented as the current PR's).",
+		"- **严禁读取 `.pi-subagents/`（工件、对话日志）或尝试从磁盘拼凑审查发现。** `pi_review_report` 所需数据全部来自第 2 步 workflowScript 的返回值。",
 	);
 	blocks.push(
-		"- Use the exact `pi-review.*` agents below — do not substitute builtin `reviewer`. Keep per-child `toolBudget` / `turnBudget` and the top-level `async:false` / `context:\"fresh\"` / `timeoutMs`.",
+		"- 严格使用下方指定的 `pi-review.*` 代理名称，保持每个子代理的 `toolBudget` / `turnBudget` 与全局的 `async:false` / `context:\"fresh\"` / `timeoutMs`。",
 	);
-	blocks.push("- Reviewer models **inherit** the parent session (omit per-child `model` unless the reviewer config sets an explicit model).");
+	blocks.push("- 审查专家模型**默认继承**父会话（除非配置显式指定了具体模型）。");
 	blocks.push(
-		"- The `workflowScript` value below is a **template literal (backticks)** whose content is the exact text of the run's `workflow.js`. Copy its content verbatim — every character matters (paths, `outputSchema` JSON, budgets are already generated). Do not re-format, re-indent, unescape, or shorten it; the backtick form is unescaped by design so a straight copy is a valid script.",
+		"- 下方的 `workflowScript` 是一个模板字面量，已包含完整路径与参数。请一字不差地复制使用。",
 	);
 	blocks.push("");
-	blocks.push(`**Skip these false positives:** ${FALSE_POSITIVE_GUIDANCE}.`);
+	blocks.push(`**忽略以下误报内容:** ${FALSE_POSITIVE_GUIDANCE}。`);
 	blocks.push("");
 
 	blocks.push(
-		"First, post the workflow as a markdown checklist into chat, then work through it — flip each `- [ ]` to `- [x]` as you finish.",
+		"首先，在聊天中输出中文工作流待办清单（Checklist），随后逐步执行，并在完成每步后将 `- [ ]` 标记为 `- [x]`：",
 	);
 	blocks.push("");
 	const todoSteps = [
-		`Confirm the plugin-prepared manifest is readable: ${manifestPath}`,
-		`Confirm the target workspace is readable: ${workspacePath}`,
+		`确认插件准备的运行清单可读: ${manifestPath}`,
+		`确认目标工作区可读: ${workspacePath}`,
 		lite
-			? "Run one workflowScript: the lite-reviewer (one subagent call)"
+			? "执行 workflowScript: 启动单兵极速审查专家 (单次 subagent 调用)"
 			: gateOn
-				? `Run one workflowScript: ${reviewers.length} parallel reviewers + inline gate (one subagent call)`
-				: `Run one workflowScript: ${reviewers.length} parallel reviewers, no gate (one subagent call)`,
-		"Call `pi_review_report` once with the workflow return value (never re-parse findings)",
+				? `执行 workflowScript: 启动 ${reviewers.length} 个并发审查专家 + 门禁裁判长 (单次 subagent 调用)`
+				: `执行 workflowScript: 启动 ${reviewers.length} 个并发审查专家 (单次 subagent 调用)`,
+		"调用 `pi_review_report` 工具提交审查结果并生成中文报告",
 	];
 	for (const s of todoSteps) blocks.push(`- [ ] ${s}`);
 	blocks.push("");
 
-	// Step 1 — confirm the plugin-prepared manifest (no LLM-obtained diff).
-	blocks.push("## Step 1 — Confirm the plugin-prepared run (you, the main agent)");
+	// Step 1
+	blocks.push("## 第 1 步 — 确认插件准备的环境（由主代理执行）");
 	blocks.push("");
 	blocks.push(
-		`The extension has **already** cloned/checked out the target repo, fetched an accurate diff, computed SHA-256 of the diff, and written \`${manifestPath}\` plus \`${diffPath}\`.`,
+		`插件已经完成了目标仓库准备，提取了准确的 diff 并计算了 SHA-256 哈希，生成了 \`${manifestPath}\` 与 \`${diffPath}\`。`,
 	);
 	blocks.push("");
-	blocks.push("Verify with a single `bash` call with **no `&&` / `||` chains** and no network calls. Use one `test` per file (no compound operators):");
+	blocks.push("请使用单次 `bash` 调用（不使用 `&&` / `||` 复合连接符）验证文件存在：");
 	blocks.push("");
 	blocks.push("```bash");
 	blocks.push(`test -s ${JSON.stringify(diffPath)}`);
@@ -143,10 +114,10 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	blocks.push(`test -d ${JSON.stringify(workspacePath)}`);
 	blocks.push("```");
 	blocks.push("");
-	blocks.push("If any check fails, stop and notify the user. Otherwise continue.");
+	blocks.push("若任何检查失败，停止并通知用户；检查通过则继续执行第 2 步。");
 	blocks.push("");
 
-	// Step 2 — single workflowScript call.
+	// Step 2
 	const script = buildWorkflowScript({
 		reviewers,
 		gateModelWithThinking,
@@ -164,49 +135,40 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 		diffPath,
 	});
 
-	// Parse guard (P0 regression): make sure the generated script is valid JS
-	// BEFORE it reaches the main agent. If the template ever regresses — or,
-	// critically, if it ever grows a backtick or `${` (which would break the
-	// template-literal presentation the main agent copies) — fail here instead
-	// of at subagent() time.
 	if (/[`$]/.test(script)) {
 		throw new Error(
-			"pi-review: generated workflowScript contains a backtick or `$` (template-literal conflict) — the directive presents it inside backticks, so this would corrupt the main agent's copy. This is a plugin bug; please report it.",
+			"pi-review: generated workflowScript contains a backtick or `$` (template-literal conflict).",
 		);
 	}
 	try {
 		new Function(`return (async () => {\n${script}\n})`);
 	} catch (err) {
 		throw new Error(
-			`pi-review: generated workflowScript is not valid JavaScript — refusing to hand it to the main agent. This is a plugin bug; please report it. Underlying error: ${err instanceof Error ? err.message : String(err)}`,
+			`pi-review: generated workflowScript is not valid JavaScript: ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
 
-	// Persist the raw script text so the main agent has a zero-unescape
-	// retry source (see ReviewDirectiveInput.workflowPath).
 	if (workflowPath) {
 		try {
 			writeFileSync(workflowPath, script, "utf-8");
 		} catch {
-			// Directive still works from the template literal below.
+			/* ignore */
 		}
 	}
 
-	blocks.push("## Step 2 — Run the review (exactly one subagent workflowScript call)");
+	blocks.push("## 第 2 步 — 执行代码审查（仅调用一次 subagent workflowScript）");
 	blocks.push("");
 	blocks.push(
 		lite
-			? "The script fans out the single lite-reviewer, which returns a Markdown report ending in a fenced JSON block."
+			? "该脚本会启动单兵极速审查专家，输出包含 JSON 块的 Markdown 报告。"
 			: gateOn
-				? "The script fans out the lean reviewers in parallel (Markdown reports), then feeds their reports to the gate, which returns a Markdown synthesis ending in a fenced JSON verdict block."
-				: "The script fans out the lean reviewers in parallel (gate disabled in config); each returns a Markdown report.",
+				? "该脚本会并发启动各个审查专家，随后将报告汇总给门禁裁判长，裁判长输出裁决报告与 JSON 块。"
+				: "该脚本会并发启动各个审查专家，输出 Markdown 报告。",
 	);
 	blocks.push("");
 	blocks.push("```js");
 	blocks.push("subagent({");
 	blocks.push("  workflowScript: `");
-	// The raw script, verbatim (no escaping). The script contains no
-	// backticks and no ${, so the template literal is lossless.
 	blocks.push(script);
 	blocks.push("`,");
 	blocks.push(`  async: false,`);
@@ -217,58 +179,35 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	blocks.push("```");
 	blocks.push("");
 	blocks.push(
-		`Copy the SUBAGENT CALL above verbatim (the workflowScript template-literal content is the exact text of \`${workflowPath ?? "workflow.js"}\`). If the call is rejected with a script parse error, \`Read\` the workflow.js file and repeat the call with that content — one retry only, no hand-editing.`,
+		`一字不差地复制上方代码执行。若出现解析错误，请使用 \`Read\` 读取 \`${workflowPath ?? "workflow.js"}\` 内容并重试一次。`,
 	);
 	blocks.push("");
 
-	// Step 3 — tool call.
-	blocks.push("## Step 3 — Render the report (call `pi_review_report`)");
+	// Step 3
+	blocks.push("## 第 3 步 — 渲染审查报告（调用 `pi_review_report`）");
 	blocks.push("");
 	blocks.push(
-		"Call the `pi_review_report` tool **exactly once** with `{ runId, workflowReturn }`. The tool loads the manifest, extracts + validates the gate's fenced JSON verdict block, runs the deterministic verdict rules, and renders the final markdown + persists a session entry. Do not re-write findings yourself.",
+		"以 `{ runId, workflowReturn }` 调用 `pi_review_report` 工具**仅一次**。该工具会自动加载清单、解析裁判长的 JSON 裁决、执行判定规则并输出最终的中文 Markdown 审查报告。切勿自己手动重写发现。",
 	);
 	blocks.push("");
-
-	// Parse guard (P0 regression): make sure the generated script is valid JS
-	// BEFORE it reaches the main agent. If the template ever regresses (e.g. an
-	// unquoted path), fail here with a clear error instead of at subagent() time.
-	try {
-		new Function(`return (async () => {\n${script}\n})`);
-	} catch (err) {
-		throw new Error(
-			`pi-review: generated workflowScript is not valid JavaScript — refusing to hand it to the main agent. This is a plugin bug; please report it. Underlying error: ${err instanceof Error ? err.message : String(err)}`,
-		);
-	}
 
 	return blocks.join("\n");
 }
 
-/**
- * Build the inline workflowScript string. Single-wave: one `runs.all([...])`
- * for reviewers, one `runs.run(\"gate\")`. Every child carries `cwd`,
- * `outputSchema`, `toolBudget`/`turnBudget`; explicit model overrides flow
- * through only when the reviewer config is not `inherit`.
- */
 export function buildWorkflowScript(input: {
 	reviewers: ReviewerSpec[];
 	gateModelWithThinking: string;
-	/** Raw gate thinking level (fallback branch passes it as a child param). */
 	gateThinking?: string;
 	gateModel: string;
 	budgets: LeanBudgetSpec;
 	lite: boolean;
-	/** Mirror of the directive-level gate switch (false when lite OR disabled). */
 	gateEnabled?: boolean;
 	threshold: number;
-	/** Verdict policy for the gate task text (strict is code-side default). */
 	verdictPolicy?: "strict" | "legacy";
 	targetLabel: string;
 	userContext?: string;
-	/** Absolute target workspace path (reviewer + gate cwd). */
 	workspacePath: string;
-	/** Absolute run manifest path. */
 	manifestPath: string;
-	/** Absolute change.diff path. */
 	diffPath: string;
 }): string {
 	const {
@@ -289,62 +228,46 @@ export function buildWorkflowScript(input: {
 	} = input;
 	const gateOn = !lite && gateEnabled;
 
-	// Blanket read-only declaration. pi-subagents classifies each task text for
-	// mutation intent: with a generic-object prohibition ("do not write any
-	// files") plus "review only"/"return findings only", the task is
-	// unambiguously read-only, so a read-only agent (gate: tools read) is never
-	// rejected by the implementation-tool contract, and acceptance stays at the
-	// lightweight attested level instead of "risky write-capable".
 	const READ_ONLY_PREFIX =
-		"READ-ONLY task — review only. Do not write any files. Do not edit files. Return findings only.";
+		"只读任务（READ-ONLY）——仅执行审查分析。严禁写入或修改任何文件。仅返回审查发现。所有分析总结、问题描述与建议必须使用纯正中文。";
 
 	const lines: string[] = [];
-	// v0.8: no outputSchema on any child — the structured-output tool
-	// contract was too fragile in the field ("Missing structured_output
-	// call" after budget wrap-ups). Reviewers return Markdown reports; the
-	// gate ends with a fenced JSON verdict block that the report tool
-	// extracts. See agents/*.md "Output format" sections.
 	lines.push("");
-	// Bind the reviewer array to a local FIRST: the gate IIFE and
-	// `reviewersShaped` below both reference `reviewers`, and a bare object
-	// property (`return { reviewers: ... }`) does NOT create a variable
-	// binding — that produced `ReferenceError: reviewers is not defined` at
-	// runtime (silently surfaced as a null workflow return).
 	lines.push("const reviewers = await runs.all([");
 	for (const r of reviewers) {
-		const tb = LEAN_BUDGETS.defaultToolBudget; // resolved below per-id
+		const tb = LEAN_BUDGETS.defaultToolBudget;
 		const tbForId = r.id === "history-context" ? LEAN_BUDGETS.historyToolBudget : tb;
 		const taskParts = [
 			READ_ONLY_PREFIX,
-			`Read ${JSON.stringify(diffPath)} as the change — the diff is the authoritative change record; workspace files are context only. When a workspace file disagrees with the diff, trust the diff and note the discrepancy in coverage.limitations.`,
-			`Also read ${JSON.stringify(manifestPath)} for change-profile (docsOnly, file list, rule file paths). Do not re-fetch via gh/git.`,
-			`Your cwd is the target workspace (${JSON.stringify(workspacePath)}). Run all read/grep/git from there.`,
-			"Stay within budgets; finish with your Markdown report (Summary / Findings / Coverage) as your final message and stop.",
-			"Do not read plan.md, progress.md, anything under .pi-subagents/ (artifacts and transcripts included), or node_modules.",
-			"Prefer Read/Grep. If you use bash, only simple allowlisted commands (no &&/||/; compounds).",
+			`读取 ${JSON.stringify(diffPath)} 作为改动内容——diff 是权威的修改记录，工作区文件仅作上下文参考。若工作区文件与 diff 存在差异，以 diff 为准并在 coverage.limitations 中说明。所有问题描述必须使用中文。`,
+			`同时读取 ${JSON.stringify(manifestPath)} 获取改动概要（文档变更状态、文件列表、规则文件路径）。禁止通过外部命令重复拉取。`,
+			`你的当前工作区为目标工作区 (${JSON.stringify(workspacePath)})。在此目录下执行必要的 read/grep。`,
+			"在额度内完成分析；最终回复必须输出格式规范的 Markdown 审查报告（包含中文 Summary / Findings / Coverage 章节）并停止。所有问题描述、证据引用和总结必须使用纯正中文。",
+			"严禁读取 plan.md, progress.md, 以及 .pi-subagents/ 目录下的任何文件或 node_modules。",
+			"优先使用 Read/Grep。若使用 bash，仅限简单的单条命令（禁止 &&/||/; 等复合命令）。",
 		];
 		if (r.id === "claude-md-compliance") {
 			taskParts.push(
-				`If change-profile.rulePaths is empty, return status: skipped with empty issues — do not invent rule violations.`,
+				"若 change-profile.rulePaths 为空，返回跳过状态：SKIPPED: no-rules，不提出虚构的违规。",
 			);
 		}
 		if (r.id === "history-context") {
 			taskParts.push(
-				`If change-profile.history.available is false, return status: skipped with empty issues. Take ≤5 paths from the file list and run ONE bash: git log -n 5 --oneline -- <file1> <file2> ...`,
+				"若 change-profile.history.available 为 false，返回跳过状态：SKIPPED: no-history。从文件列表中选取不超过5个路径，仅执行一次 bash: git log -n 5 --oneline -- 文件1 文件2 ...",
 			);
 		}
 		if (r.id === "code-comments") {
 			taskParts.push(
-				`If change-profile.docsOnly is true, return status: skipped with empty issues.`,
+				"若 change-profile.docsOnly 为 true，返回跳过状态：SKIPPED: docs-only。",
 			);
 		}
 		if (r.id === "bugbot" || r.id === "security-review") {
 			taskParts.push(
-				`If change-profile.docsOnly is true, return status: skipped with empty issues. Otherwise prefer diff-only; at most 3 extra file reads.`,
+				"若 change-profile.docsOnly 为 true，返回跳过状态：SKIPPED: docs-only。否则优先从 diff 本身分析，最多只读取 3 个额外上下文文件。",
 			);
 		}
 		if (userContext?.trim()) {
-			taskParts.push(`User request: ${userContext.trim()}`);
+			taskParts.push(`用户需求: ${userContext.trim()}`);
 		}
 
 		const modelClause =
@@ -354,9 +277,6 @@ export function buildWorkflowScript(input: {
 		lines.push("    {");
 		lines.push(`      key: ${JSON.stringify(r.id)},`);
 		lines.push(`      agent: ${JSON.stringify(leanAgentName(r.id))},`);
-		// Task as an array joined at runtime — one short quoted line per
-		// instruction. A single JSON.stringify of the whole task produced
-		// 900+ char lines, the other fragile copy point.
 		lines.push(`      task: [`);
 		for (const part of taskParts) {
 			lines.push(`        ${JSON.stringify(part)},`);
@@ -375,52 +295,34 @@ export function buildWorkflowScript(input: {
 	lines.push("]);");
 	lines.push("");
 
-	// ---- gate ----------------------------------------------------------
-	// Top-level statements ONLY: pi-subagents' workflowScript AST walker
-	// rejects nested async functions ("Use top-level await, plain helper
-	// functions, or explicit Promise chains"). The pre-0.7.4 form
-	// `gate: await (async () => { ... })()` therefore never passed upstream
-	// validation — every prior failure that survived the copy stage died
-	// here (2026-08-26 session: "validation failed before child launch").
+	// Gate
 	if (gateOn) {
 		const gateTaskParts = [
 			READ_ONLY_PREFIX,
-			`Synthesize reviewer findings for ${targetLabel}.`,
-			`The full diff is at ${JSON.stringify(diffPath)} and your cwd is the target workspace — you CAN and SHOULD verify candidates yourself.`,
-			`Threshold ${threshold}: drop candidates with finalConfidence < ${threshold}.`,
-			`Inputs are the reviewers' Markdown reports (## Summary / ## Findings / ## Coverage sections, one per reviewer).`,
-			`Re-score every candidate 1–10. For each blocker/major candidate, first try to verify it by reading the diff hunk and the touched file in the workspace; state what you checked in the disposition reason.`,
-			`Never raise a candidate above 8 without your own verification evidence from the diff or workspace files.`,
-			`If you cannot verify a blocker/major candidate (missing context, truncated diff), do NOT silently drop it: keep it at the reviewer's original confidence, prefix the reason with "unverified:", and let the human decide — the parent's report tool floors unverified blocker/major candidates at the threshold so they stay visible.`,
-			`Every candidate must appear in dispositions with decision (kept | dropped | merged), originalConfidence, finalConfidence, sourceReviewers, reason.`,
+			`对 ${targetLabel} 的所有专家审查发现进行综合仲裁与去重。所有分析、裁决理由与总结必须使用纯正中文。`,
+			`完整 diff 位于 ${JSON.stringify(diffPath)}，当前工作区为目标工作区——你可以且应当亲自核验候选问题。`,
+			`置信度阈值 ${threshold}：过滤掉最终置信度小于 ${threshold} 的假警报与无意义建议。`,
+			`输入为各专家的 Markdown 报告（每个专家包含 ## Summary / ## Findings / ## Coverage）。`,
+			`重新评估每个问题的置信度（1–10 分）。对每个 blocker（致命）或 major（严重）候选问题，首先通过阅读 diff 块和目标文件进行核验，并在 disposition 的 reason 中用中文说明核验结果。`,
+			`若未经你自己核验证实，严禁将候选问题评分提升至 8 分以上。`,
+			`若因缺少上下文或 diff 截断而无法核验某个 blocker/major 问题，切勿静默丢弃：保留原置信度并在 reason 前缀注明 "未核验:"，交由人工判断。`,
+			`每个问题必须记录在 dispositions 中，包含 decision (kept | dropped | merged), originalConfidence, finalConfidence, sourceReviewers, reason（中文理由）。`,
 			verdictPolicy === "legacy"
-				? `Verdict (legacy): request_changes if any blocker OR >=3 majors; approve if no blocker/major; else comment.`
-				: `Verdict (strict): request_changes if any surviving blocker or major; comment if only minor/nit; approve if no surviving issues.`,
-			`The parent re-applies verdict in code; this is a recommendation.`,
-			`Skip false positives: ${FALSE_POSITIVE_GUIDANCE}.`,
-			`End your report with exactly one fenced json block containing { status, verdict, issues[], dispositions[], reason } — the parent machine-reads that block.`,
+				? `裁决规则: 存在任何 blocker 或 >=3 个 major 则判定为 request_changes; 无 blocker/major 则 approve; 否则 comment。`
+				: `裁决规则: 存在任何存活的 blocker 或 major 则判定为 request_changes; 仅有 minor/nit 则 comment; 无存活问题则 approve。`,
+			`过滤假警报: ${FALSE_POSITIVE_GUIDANCE}。`,
+			`在报告末尾必须输出且仅输出一个被 json 代码块包裹的裁决 JSON 对象 { status, verdict, issues[], dispositions[], reason }（reason 与 evidence 必须为中文）——上层工具将机器读取该 JSON。`,
 		];
 
-		// Inline the reviewers' Markdown reports for the gate to arbitrate.
-		// (Sync arrow — allowed; only async functions are rejected upstream.)
 		lines.push("const reviewerSections = reviewers.map((r) => {");
-		lines.push("  const head = '## Reviewer: ' + r.key + (r.ok ? '' : ' (FAILED: ' + String(r.error || 'run failed').slice(0, 120) + ')');");
-		lines.push("  return head + '\\n\\n' + String(r.output || '(no output)').slice(0, 6000);");
+		lines.push("  const head = '## 审查专家: ' + r.key + (r.ok ? '' : ' (执行失败: ' + String(r.error || 'run failed').slice(0, 120) + ')');");
+		lines.push("  return head + '\\n\\n' + String(r.output || '(无输出)').slice(0, 6000);");
 		lines.push("});");
-		// Gate task as an array join (short lines) — same copy-safety rule as
-		// the reviewer tasks above.
 		lines.push("const gateTask = [");
 		for (const part of gateTaskParts) {
 			lines.push(`  ${JSON.stringify(part)},`);
 		}
-		lines.push(`].join(" ") + '\\n\\n# Reviewer reports (Markdown)\\n\\n' + reviewerSections.join('\\n\\n---\\n\\n');`);
-		// Proxy providers often report bare model ids from the child ("MiniMax-M2.7")
-		// that fail the launcher's strict model verification against the launch
-		// candidate ("CPA/Minimax/MiniMax-M2.7:high") — observed 2026-08-27. The
-		// reviewers never hit this (they inherit). So: try the configured model
-		// first; on launch failure retry once with an inherited model under a
-		// DIFFERENT key (the runtime rejects same-key launches with different
-		// params). A second failure rejects as before.
+		lines.push(`].join(" ") + '\\n\\n# 专家审查报告汇总 (Markdown)\\n\\n' + reviewerSections.join('\\n\\n---\\n\\n');`);
 		lines.push("let gateRun;");
 		lines.push("try {");
 		lines.push("  gateRun = await runs.run('gate', {");
@@ -447,7 +349,6 @@ export function buildWorkflowScript(input: {
 		lines.push("  ok: gateRun.ok,");
 		lines.push("  error: gateRun.error,");
 		lines.push("  output: gateRun.output,");
-		
 		lines.push("};");
 		lines.push("");
 	}
@@ -459,8 +360,6 @@ export function buildWorkflowScript(input: {
 	} else {
 		lines.push("  gate: null,");
 	}
-
-	// ---- reviewer summary shape ----------------------------------------
 	lines.push("  reviewersShaped: reviewers.map((r) => ({");
 	lines.push("    key: r.key,");
 	lines.push("    ok: r.ok,");
@@ -471,11 +370,6 @@ export function buildWorkflowScript(input: {
 	return lines.join("\n");
 }
 
-/** Map the workflow return value into a normalized `ReviewWorkflowReturn` for the tool. */
 export function buildWorkflowReturnShape() {
 	return "{ reviewers, reviewersShaped, gate }";
 }
-
-// `gateModel` reserved for config validation parity with previous surface.
-export const _LEGACY_PARITY = { gateModel: "" };
-void _LEGACY_PARITY;
