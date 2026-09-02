@@ -12,12 +12,14 @@
 pi-unifan-zh/
 ├── package.json              # 根包配置（支持整包一键安装）
 ├── tsconfig.json             # TypeScript 配置
+├── AGENTS.md                 # 开发者与智能体规范指南
 ├── README.md                 # English Documentation
 ├── README_zh.md              # 中文说明文档
 ├── extensions/               # 📦 独立插件集
-│   ├── sessions/             # 📜 历史会话管理器（双栏实时预览与恢复·中文增强版）
-│   └── review/               # 🔍 AI 并发代码审查（5 专家并发 + 门禁裁判·中文增强版）
-└── skills/                   # 🎯 自定义技能库（存放自定义 SKILL.md）
+│   ├── sessions/             # 📜 ① 历史会话管理器（双栏实时预览与恢复·中文增强版）
+│   ├── review/               # 🔍 ② AI 代码审查套件（日常3专家 / 极速单兵 / 性能探针 / 全量会诊）
+│   └── commit/               # 📦 ③ 智能 Git 提交助手（Conventional Commits 纯中文规范版）
+└── skills/                   # 🎯 自定义技能库
 ```
 
 ---
@@ -26,12 +28,12 @@ pi-unifan-zh/
 
 ### 模式 A：一键安装整包（包含所有插件与技能）
 
-#### 1. 通过 npm 在线安装：
+#### 1. 通过 npm 在线安装（推荐 ⭐）：
 ```bash
 pi install npm:@unifan/pi-unifan-zh
 ```
 
-#### 2. 通过 GitHub 远程在线安装（实时最新）：
+#### 2. 通过 GitHub 远程在线安装：
 ```bash
 pi install git:github.com/821869798/pi-unifan-zh
 ```
@@ -47,25 +49,22 @@ pi install D:/program/my/pi-unifan-zh
 
 #### 1. 仅安装 `sessions`（历史会话管理器·中文版）：
 ```bash
-# npm 在线安装：
 pi install npm:@unifan/pi-sessions-zh
-
-# 本地安装：
-pi install D:/program/my/pi-unifan-zh/extensions/sessions
 ```
 
-#### 2. 仅安装 `review`（AI 并发代码审查·中文版）：
+#### 2. 仅安装 `review`（AI 代码审查系统·中文版）：
 ```bash
-# npm 在线安装：
 pi install npm:@unifan/pi-review-zh
+```
 
-# 本地安装：
-pi install D:/program/my/pi-unifan-zh/extensions/review
+#### 3. 仅安装 `commit`（智能 Git 提交助手·中文版）：
+```bash
+pi install npm:@unifan/pi-commit-zh
 ```
 
 ---
 
-## 📦 扩展功能与使用说明
+## 📦 扩展功能与核心命令
 
 ### 1. 📜 `sessions`（历史会话管理器·中文版）
 - **命令**：`/sessions`
@@ -85,34 +84,40 @@ pi install D:/program/my/pi-unifan-zh/extensions/review
 
 ---
 
-### 2. 🔍 `review`（AI 并发代码审查·中文版）
-- **命令**：
-  - **`/review --lite`** ⭐ **（极速单兵审查，强烈推荐日常使用）**：单 AI 快速体检，3~5 秒出结果，极度省时省 Token。
-  - **`/review`**：全量 5 专家深度并发审查 + 门禁裁判长综合判定（适合重大 PR 与版本合并）。
-  - **`/review 重点看并发与内存泄露`**：带侧重点定向深度审查。
+### 2. 🔍 `review`（AI 并发代码审查套件·中文版）
+- **四大审查命令模式**：
+  - **`/review-lite`** ⭐ **（极速单兵审查，强烈推荐日常使用）**：单 AI 快速体检，2~3 秒出结果，极度省时省 Token。
+  - **`/review-perf`** 🔥 **（专项性能审查与基准测试）**：专项深度排查 GC 堆内存分配、Update/帧循环热点、算法复杂度与 Benchmark 探针。
+  - **`/review`** 🔍 **（日常 3 大核心专家审查）**：Bug 猎手 + 安全审查 + 规范合规 + 门禁裁判长（低延迟抗超时）。
+  - **`/review-full`** 🏥 **（全量 6 专家深度会诊）**：全套专家并发会诊（适合重大 PR 与版本合并，支持 `--full`）。
+- **辅助命令**：
   - **`/review-show`**：重新查看最近一次的代码审查报告。
   - **`/review-agents`**：查看各专家代理状态与模型分配。
   - **`/review-config`**：编辑审查配置文件。
-- **特性**：
-  - 5 大专业 AI 专家（Bug 猎手、安全审查官、规范守卫、历史回归分析官、注释审查官）并发排查。
-  - 门禁裁判长（Gate AI）智能去重并过滤置信度低于 8 分的误报。
-  - **报告与问题描述 100% 纯正中文输出**，严重等级分类（致命阻断 / 严重 / 次要 / 细节优化）。
+- **核心亮点**：
+  - **门禁自适应继承**：门禁裁判长（Gate）自适应继承当前主会话模型，绝不报错 `Unknown subagent model`。
+  - **自动网络重试与熔断保护**：并发网络抖动自动重试，即使门禁异常也能完整保留前面所有专家的审查成果，绝不浪费 Token！
+  - **报告 100% 纯正中文输出**。
 
 ---
 
-## 🔄 后续如何更新？
-
-```bash
-# 更新全部已安装的扩展：
-pi update --extensions
-
-# 或指定更新某个插件：
-pi update npm:@unifan/pi-unifan-zh
-pi update git:github.com/821869798/pi-unifan-zh
-```
+### 3. 📦 `commit`（智能 Git 提交助手·中文版）
+- **命令**：
+  - **`/commit`**：自动分析暂存区/工作区代码变动（`git diff`），生成标准的 Conventional Commits 纯中文提交信息并 1 秒完成提交。
+  - **`/commit-push`** 🚀：自动生成中文 Commit 提交，并**自动执行 `git push` 推送**到远端分支。
+- **常用参数与用法**：
+  - `/commit`：智能提交（有暂存只提暂存，无暂存自动暂存全量）。
+  - `/commit -a` 或 `/commit --all`：自动强制暂存所有工作区修改（`git add -A`）并提交。
+  - `/commit 修复了技能释放异常`：带提示词定向引导生成提交信息。
+- **核心工程规范**：
+  - **11 大标准分类**：`feat`, `fix`, `perf`, `refactor`, `ci`, `build`, `chore`, `docs`, `test`, `style`, `revert`。
+  - **严格半角英文标点**：括号 `()` 与冒号空格 `: ` 严格使用英文半角字符，确保 CI / Commitlint 正则解析合规。
+  - **严禁 Emoji**：保持严谨、专业的纯文本工程风格。
+  - **智能自动变基（Auto Rebase）**：在 `/commit-push` 时，若远端有别人先提交的代码被拒绝，**自动在后台执行 `git pull --rebase` 变基并自动重试推送**，Git 历史保持一条干净直线！
+  - **未推送提交自动同步**：即使当前工作区干净，若检测到本地有尚未 push 的历史 Commit，`/commit-push` 也会自动将其推送至远端！
 
 ---
 
-## 📄 开源协议
+## 📄 开源许可证
 
-MIT License
+本项目基于 [MIT License](./LICENSE) 协议开源。
