@@ -1,6 +1,6 @@
 {
   "name": "@unifan/pi-review-zh",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Pi AI 并发代码审查扩展（多专家子代理并发 + 门禁裁判系统，中文增强版）",
   "type": "module",
   "license": "MIT",
