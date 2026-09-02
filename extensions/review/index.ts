@@ -1353,4 +1353,161 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			}
 		},
 	});
+
+	// 针对【代码开发会话·修复方】的提示词模板
+	const DEV_FIX_PROMPT_TEMPLATE = `> 🚨【核心语言指令】：全流程 100% 纯正中文！
+
+# 任务指令：针对代码审查（Code Review）意见进行核验、修复与总结
+
+外部审查专家提出了以下代码审查意见与发现：
+---
+{content}
+---
+
+## 执行指示（请严格遵守）：
+1. **逐条仔细核验**：结合当前代码上下文仔细审阅上述每一项发现。
+2. **合理的问题立即修复**：
+   - 确实存在逻辑缺陷、边界隐患、空指针或并发风险的，请立即使用代码编辑工具进行修复。
+   - 确保修改后的代码语法正确、逻辑自洽且未引入新问题。
+3. **有争议或误报的问题有理有据解释**：
+   - 若某些意见属于误报，或由于特定业务场景与底层架构已有防护，请明确给出技术解释与考量依据。
+4. **输出结构化的《整改与回复报告》（供用户直接复制回审查会话复核）**：
+   在最终回复末尾，严格按以下格式进行总结：
+
+### 🛠️ 代码审查整改与回复报告
+- **[已修复] [问题标题]**
+  - **修改说明**：说明修改了哪些文件与函数，采取了什么具体修复方案。
+- **[无需修改/已说明] [问题标题]**
+  - **原因解释**：说明为什么无需修改或为什么既有实现是合理的。
+
+### 📝 本次整改提交摘要
+一句话总结本次修复涉及的模块与核心变动。
+`;
+
+	// 针对【审查复核会话·审查方】的提示词模板
+	const REVIEWER_RECHECK_PROMPT_TEMPLATE = `> 🚨【核心语言指令】：全流程 100% 纯正中文！
+> 🚨【关键操作禁令】：你当前处于【复核审查官】模式，**严禁修改任何代码！严禁调用任何写入/修改工具！** 你的唯一职责是验证代码是否已被正确修复！
+
+# 任务指令：复核开发者的代码修复与整改说明
+
+开发者提交了针对此前代码审查的整改回复：
+---
+{content}
+---
+
+## 执行指示（请严格遵守）：
+1. **查阅最新改动**：立即运行 \`git diff\` 查看最新代码改动，并按需使用 \`read\` 查阅修改后的完整方法与类上下文。
+2. **逐项对照复核**：
+   - 对照上述整改说明与最新代码，严格核验此前的问题是否真正被彻底解决。
+   - 检查本次修复是否引入了新的逻辑缺陷、空指针、状态残留或并发风险。
+   - 评估开发者对于“无需修改”项的解释是否合理、论据是否充分。
+3. **严禁修改任何源码文件**（只读复核）。
+4. **给出最终复核裁决**：
+   - **若所有关键问题均已圆满解决，代码质量达标**：
+     请在报告末尾明确输出绿色的终审裁决大标题：
+     ## ✅【审核通过，可以提交代码】
+     并附上一句话总评。
+   - **若仍有未解决或新引入的问题**：
+     请在报告末尾明确输出：
+     ## ❌【仍有阻塞问题需继续修改】
+     列出具体的剩余问题、所在文件行号与修改要求，以便用户再次复制给开发者继续修复。
+`;
+
+	function detectReviewSyncRole(
+		entries: any[],
+		content: string,
+		flag?: "fix" | "check",
+	): "fix" | "check" {
+		if (flag) return flag;
+
+		// 1. 会话历史特征判断：当前会话是否曾作为审查分支或执行过 review
+		const hasReviewHistory = entries.some((e) => {
+			if (e.type === "custom" && e.customType === REVIEW_STATE_TYPE) return true;
+			if (e.type === "message" && e.message?.content) {
+				const text = JSON.stringify(e.message.content);
+				return text.includes("核心代码审查准则") || text.includes("正在启动代码审查");
+			}
+			return false;
+		});
+
+		if (hasReviewHistory) {
+			return "check";
+		}
+
+		// 2. 粘贴内容特征判断：
+		// 审查发现一般包含 [P0]、[P1]、"审查发现"、"缺陷说明"、"综合裁决"
+		// 修复汇报一般包含 "已修复"、"整改与回复"、"修改说明"、"本次整改"
+		const hasReviewMarkers = /\[P[0-3]\]|审查发现|缺陷说明|综合裁决|代码审查准则/i.test(content);
+		const hasFixMarkers = /已修复|整改与回复|修改说明|本次整改|无需修改/i.test(content);
+
+		if (hasFixMarkers && !hasReviewMarkers) {
+			return "check";
+		}
+		if (hasReviewMarkers) {
+			return "fix";
+		}
+
+		return "fix";
+	}
+
+	async function handleReviewSync(rawArgs: string | undefined, ctx: ExtensionCommandContext) {
+		if (!ctx.hasUI) {
+			ctx.ui.notify("review-sync 需要交互式终端环境", "error");
+			return;
+		}
+
+		let text = rawArgs?.trim() || "";
+		let forcedRole: "fix" | "check" | undefined = undefined;
+
+		if (text.startsWith("--fix ")) {
+			forcedRole = "fix";
+			text = text.slice(6).trim();
+		} else if (text.startsWith("--check ") || text.startsWith("--review ")) {
+			forcedRole = "check";
+			text = text.replace(/^--(?:check|review)\s+/, "").trim();
+		}
+
+		if (!text) {
+			const input = await ctx.ui.editor(
+				"请粘贴 Review 审查发现清单（发给开发会话修复）或 修复整改说明（发给审查会话复核）：",
+				"",
+			);
+			if (!input?.trim()) {
+				ctx.ui.notify("已取消操作", "info");
+				return;
+			}
+			text = input.trim();
+		}
+
+		const entries = ctx.sessionManager.getEntries();
+		const role = detectReviewSyncRole(entries, text, forcedRole);
+
+		if (role === "fix") {
+			ctx.ui.notify("🤖 自动识别为【代码开发会话】：正在逐项核验并执行代码修复...", "info");
+			const prompt = DEV_FIX_PROMPT_TEMPLATE.replace("{content}", text);
+			pi.sendUserMessage(prompt);
+		} else {
+			ctx.ui.notify("🔍 自动识别为【审查复核会话】：正在对照改动进行只读复核 (严禁改动代码)...", "info");
+			const prompt = REVIEWER_RECHECK_PROMPT_TEMPLATE.replace("{content}", text);
+			pi.sendUserMessage(prompt);
+		}
+	}
+
+	// 注册双会话审查接力闭环命令：/review-sync
+	pi.registerCommand("review-sync", {
+		description: "双会话审查接力闭环 (自动识别：开发会话自动改代码并总结，审查会话只读复核直到可提交)",
+		handler: handleReviewSync,
+	});
+
+	// 别名：/review-flow
+	pi.registerCommand("review-flow", {
+		description: "双会话审查接力闭环 (/review-sync 别名)",
+		handler: handleReviewSync,
+	});
+
+	// 别名：/review-relay
+	pi.registerCommand("review-relay", {
+		description: "双会话审查接力闭环 (/review-sync 别名)",
+		handler: handleReviewSync,
+	});
 }
