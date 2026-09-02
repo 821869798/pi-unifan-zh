@@ -11,6 +11,8 @@ export interface ParsedReviewArgs {
 	lite: boolean;
 	/** Dedicated performance review mode: perf-reviewer with benchmark capabilities. */
 	perf: boolean;
+	/** Full multi-agent review mode: all 6 reviewers + gate. */
+	full: boolean;
 	/** Override the gate model for this run (otherwise config.gate.model). */
 	gateModel?: string;
 }
@@ -24,7 +26,7 @@ const LEGACY_VALUED_FLAGS = new Set([
 
 export function parseReviewArgs(raw: string): ParsedReviewArgs {
 	const tokens = tokenize(raw);
-	const result: ParsedReviewArgs = { noSpawn: false, lite: false, perf: false };
+	const result: ParsedReviewArgs = { noSpawn: false, lite: false, perf: false, full: false };
 	const inputParts: string[] = [];
 
 	for (let i = 0; i < tokens.length; i++) {
@@ -43,6 +45,10 @@ export function parseReviewArgs(raw: string): ParsedReviewArgs {
 		}
 		if (t === "--perf" || t === "--performance") {
 			result.perf = true;
+			continue;
+		}
+		if (t === "--full") {
+			result.full = true;
 			continue;
 		}
 		if (t === "--gate-model") {

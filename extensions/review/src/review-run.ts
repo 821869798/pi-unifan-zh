@@ -49,6 +49,8 @@ export interface PrepareRunInput {
 	lite?: boolean;
 	/** Support `--perf` performance & benchmark mode. */
 	perf?: boolean;
+	/** Support `--full` all 6 reviewers mode. */
+	full?: boolean;
 	/** Optional per-run gate model override. */
 	gateModel?: string;
 	/** Set false for dry-runs — pruning is a side effect a dry run must not have. */
@@ -150,7 +152,16 @@ export async function prepareRun(input: PrepareRunInput): Promise<PreparedRun | 
 		? [{ id: "perf-review", label: "Performance Review", enabled: true, model: "inherit" }]
 		: input.lite
 			? [{ id: "lite-review", label: "Lite Review", enabled: true, model: "inherit" }]
-			: reviewersForRouting(target, config, profile);
+			: input.full
+				? [
+						{ id: "claude-md-compliance", label: "Claude-MD Compliance", enabled: true, model: "inherit" },
+						{ id: "bugbot", label: "Bugbot", enabled: true, model: "inherit" },
+						{ id: "security-review", label: "Security Review", enabled: true, model: "inherit" },
+						{ id: "history-context", label: "History Context", enabled: true, model: "inherit" },
+						{ id: "code-comments", label: "Code Comments", enabled: true, model: "inherit" },
+						{ id: "perf-review", label: "Performance Review", enabled: true, model: "inherit" },
+				  ]
+				: reviewersForRouting(target, config, profile);
 	const skippedReasons = adaptiveSkips(profile);
 	// The report tool uses this to reject findings that did not come from this
 	// run's roster (stale-artifact contamination guard).

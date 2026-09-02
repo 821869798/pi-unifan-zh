@@ -55,7 +55,7 @@ export const DEFAULT_CONFIG: PiReviewConfig = {
 		"history-context": {
 			id: "history-context",
 			label: "History Context",
-			enabled: true,
+			enabled: false,
 			model: "inherit",
 		},
 		"security-review": {
@@ -67,7 +67,7 @@ export const DEFAULT_CONFIG: PiReviewConfig = {
 		"code-comments": {
 			id: "code-comments",
 			label: "Code Comments",
-			enabled: true,
+			enabled: false,
 			model: "inherit",
 		},
 		conventions: {

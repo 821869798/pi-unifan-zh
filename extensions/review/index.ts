@@ -25,11 +25,12 @@ export default function (pi: ExtensionAPI) {
 	registerReviewReportTool(pi);
 	registerPiReviewRenderer(pi);
 	pi.registerCommand("review", {
-		description: "启动 AI 并发代码审查 (支持多专家子代理 + 门禁总裁判系统)。--lite = 极速单专家审查，--perf = 性能与基准测试审查。",
+		description: "启动日常 AI 代码审查 (3 大核心专家 + 门禁裁判长)。--lite 极速单兵，--perf 性能审查，--full 全量会诊。",
 		getArgumentCompletions: (prefix: string) => {
 			const options = [
-				{ value: "--lite", label: "--lite", description: "极速单专家审查 (无门禁，低延迟省 Token)" },
+				{ value: "--lite", label: "--lite", description: "极速单专家审查 (无门禁，低延迟极省 Token)" },
 				{ value: "--perf", label: "--perf", description: "专项性能与基准测试审查 (GC/内存分配/CPU/Benchmark)" },
+				{ value: "--full", label: "--full", description: "全量 6 专家深度会诊 (Bugbot/安全/合规/历史/注释/性能 + 门禁)" },
 				{ value: "--gate-model", label: "--gate-model", description: "指定当前审查的门禁裁判模型" },
 			];
 			const trimmed = prefix.trimStart();
@@ -69,6 +70,7 @@ export default function (pi: ExtensionAPI) {
 					input: parsed.input,
 					lite: parsed.lite,
 					perf: parsed.perf,
+					full: parsed.full,
 					gateModel: parsed.gateModel,
 				});
 				if (!prepared) {
@@ -135,6 +137,30 @@ export default function (pi: ExtensionAPI) {
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				notify(`性能审查启动失败: ${message}`, "error");
+			}
+		},
+	});
+
+	pi.registerCommand("review-full", {
+		description: "全量 6 专家深度代码审查会诊 (Bugbot/安全/合规/历史/注释/性能 + 门禁总裁判)",
+		handler: async (args, ctx) => {
+			const notify = (msg: string, level: "info" | "warning" | "error" = "info") => {
+				if (ctx.hasUI) ctx.ui.notify(msg, level);
+				else console.log(`pi-review: ${msg}`);
+			};
+			try {
+				const { config, legacyWarnings } = loadConfig();
+				for (const w of legacyWarnings) notify(`pi-review 提示: ${w}`, "warning");
+				pi.sendMessage({ customType: "pi-review", content: args ? `/review-full ${args}` : "/review-full", display: true });
+				const prepared = await prepareRun({ cwd: ctx.cwd, input: args, full: true });
+				if (!prepared) {
+					notify("没有检测到需要审查的内容 (未找到修改、PR 或非 Git 仓库)。", "info");
+					return;
+				}
+				pi.sendMessage({ customType: "pi-review-directive", content: prepared.directiveText, display: false }, { triggerTurn: true });
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				notify(`全量代码审查启动失败: ${message}`, "error");
 			}
 		},
 	});
