@@ -11,7 +11,8 @@
   "pi": {
     "extensions": [
       "./extensions/sessions/index.ts",
-      "./extensions/review/index.ts"
+      "./extensions/review/index.ts",
+      "./extensions/commit/index.ts"
     ],
     "subagents": {
       "agents": [

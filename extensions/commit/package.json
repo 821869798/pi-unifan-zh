@@ -1,0 +1,30 @@
+{
+  "name": "@unifan/pi-commit-zh",
+  "version": "1.0.6",
+  "description": "Pi 智能 Git 提交助手（规范化 Conventional Commits 纯中文版，支持一键提审与推流）",
+  "type": "module",
+  "main": "index.ts",
+  "author": "821869798",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/821869798/pi-unifan-zh.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "git",
+    "commit",
+    "conventional-commits",
+    "chinese"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.74.0 <1.0.0",
+    "@earendil-works/pi-coding-agent": ">=0.74.0 <1.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
