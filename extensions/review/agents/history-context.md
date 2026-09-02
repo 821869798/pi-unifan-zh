@@ -1,4 +1,4 @@
-﻿---
+---
 name: history-context
 package: pi-review
 description: 历史回归分析官：结合 Git 历史与修改模式分析潜在退化与破坏性变更。

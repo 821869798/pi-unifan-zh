@@ -1,4 +1,4 @@
-﻿import { Box, Text } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { IssueSeverity, Verdict } from "./types.js";

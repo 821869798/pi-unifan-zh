@@ -1,4 +1,4 @@
-﻿# 🔍 @unifan/pi-review-zh (AI 并发代码审查·中文增强版)
+# 🔍 @unifan/pi-review-zh (AI 并发代码审查·中文增强版)
 
 专为 **Pi Coding Agent** 打造的多专家子代理并发审查与门禁裁判系统（移植自 Claude Code 官方高级代码审查架构并全面中文化）。
 

@@ -1,4 +1,4 @@
-﻿---
+---
 name: claude-md-compliance
 package: pi-review
 description: 项目规范守卫：审查代码是否符合 AGENTS.md / 项目规则规范。

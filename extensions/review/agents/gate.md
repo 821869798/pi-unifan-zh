@@ -1,4 +1,4 @@
-﻿---
+---
 name: gate
 package: pi-review
 description: 门禁裁判长：汇总、去重、核验并重新评估所有专家的发现，出具最终裁决与处理清单。

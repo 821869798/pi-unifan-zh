@@ -1,4 +1,4 @@
-﻿---
+---
 name: code-comments
 package: pi-review
 description: 注释与规范审查官：审查代码注释的准确性、未完成的 TODO 与废弃代码。

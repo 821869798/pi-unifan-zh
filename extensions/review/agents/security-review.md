@@ -1,4 +1,4 @@
-﻿---
+---
 name: security-review
 package: pi-review
 description: 安全审查专家：排查注入漏洞、数据泄露、未鉴权访问与安全隐患。

@@ -1,4 +1,4 @@
-﻿---
+---
 name: lite-review
 package: pi-review
 description: 极速单兵审查官：单 agent 快速排查 Bug、安全与规范，低延迟省 Token。

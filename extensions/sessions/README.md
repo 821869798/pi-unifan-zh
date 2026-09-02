@@ -1,4 +1,4 @@
-﻿# 📜 @unifan/pi-sessions-zh (历史会话管理器·中文版)
+# 📜 @unifan/pi-sessions-zh (历史会话管理器·中文版)
 
 为 **Pi Coding Agent** 打造的高颜值双栏历史会话选择器与实时预览恢复扩展。
 

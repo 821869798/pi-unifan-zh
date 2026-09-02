@@ -1,4 +1,4 @@
-﻿# 🌟 pi-unifan-zh (Pi Chinese Extensions Collection & Monorepo)
+# 🌟 pi-unifan-zh (Pi Chinese Extensions Collection & Monorepo)
 
 A high-quality collection of Chinese-localized extensions and skills for **Pi Coding Agent**.
 

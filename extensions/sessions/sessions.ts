@@ -1,4 +1,4 @@
-﻿export interface SessionInfoLike {
+export interface SessionInfoLike {
   id: string;
   name?: string;
   cwd: string;

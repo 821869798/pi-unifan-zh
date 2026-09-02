@@ -1,4 +1,4 @@
-﻿# 🌟 pi-unifan-zh (Pi 中文扩展全家桶与独立插件库)
+# 🌟 pi-unifan-zh (Pi 中文扩展全家桶与独立插件库)
 
 专为 **Pi Coding Agent** 打造的高质量中文扩展合集与独立插件库。
 

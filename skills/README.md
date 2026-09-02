@@ -1,4 +1,4 @@
-﻿# 🎯 Pi Skills 目录 (自定义技能库)
+# 🎯 Pi Skills 目录 (自定义技能库)
 
 此目录用于存放你自定义的 Pi Agent Skills。
 

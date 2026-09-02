@@ -1,4 +1,4 @@
-﻿---
+---
 name: bugbot
 package: pi-review
 description: 逻辑 Bug 审查专家：扫描新引入代码中的逻辑漏洞、空指针与边界异常（高信噪比）。
