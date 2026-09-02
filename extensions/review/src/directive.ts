@@ -237,6 +237,8 @@ export function buildWorkflowScript(input: {
 	const READ_ONLY_PREFIX =
 		"只读任务（READ-ONLY）——仅执行审查分析与基准测试。严禁修改源码文件。仅返回审查发现。所有分析总结、问题描述与建议必须使用纯正中文。";
 
+	const lines: string[] = [];
+	lines.push("");
 	lines.push("let reviewers;");
 	lines.push("try {");
 	lines.push("  reviewers = await runs.all([");
