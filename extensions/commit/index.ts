@@ -131,7 +131,16 @@ export default function (pi: ExtensionAPI) {
 							display: true,
 						});
 					} else {
-						notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
+						if (pushRes.hasConflict) {
+							notify("⚠️ 远端拉取变基产生代码冲突！请对比修改和上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
+						} else {
+							notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
+						}
+						pi.sendMessage({
+							customType: "pi-commit-result",
+							content: `### ⚠️ 推送到远端未完成\n\n${pushRes.output}`,
+							display: true,
+						});
 					}
 					return;
 				}
@@ -172,8 +181,12 @@ export default function (pi: ExtensionAPI) {
 				notify(successMsg, "info");
 				pushText = `\n\n${successMsg}`;
 			} else {
-				notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
-				pushText = `\n\n⚠️ **推送到远端失败**:\n${pushRes.output}`;
+				if (pushRes.hasConflict) {
+					notify("⚠️ 远端拉取变基产生代码冲突！请对比修改和上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
+				} else {
+					notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
+				}
+				pushText = `\n\n${pushRes.output}`;
 			}
 		}
 
