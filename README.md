@@ -102,6 +102,7 @@ pi install npm:@unifan/pi-commit-zh
     - ⑦ `⚙️ Review Configuration` (configure Single Model vs Multi-Subagent 2~6 experts)
   - **`/review-config`** ⚙️: Standalone interactive settings command (persisted to `~/.pi/agent/pi-review.json`).
   - **`/review-lite`** ⭐: Directly audits current uncommitted changes without menu prompts.
+  - **`/review-full`** 🚀: Full-scope deep review on all changes without redundant setup steps or checklists.
   - **`/end-review`** 🏁:
     - Automatically structures review findings into P0~P3 action items.
     - Seamlessly jumps back to the original working branch and pre-fills the editor with fix instructions!
