@@ -132,7 +132,7 @@ export default function (pi: ExtensionAPI) {
 						});
 					} else {
 						if (pushRes.hasConflict) {
-							notify("⚠️ 远端拉取变基产生代码冲突！请对比修改和上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
+							notify("⚠️ 远端变基冲突：请对比修改与上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
 						} else {
 							notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
 						}
@@ -182,7 +182,7 @@ export default function (pi: ExtensionAPI) {
 				pushText = `\n\n${successMsg}`;
 			} else {
 				if (pushRes.hasConflict) {
-					notify("⚠️ 远端拉取变基产生代码冲突！请对比修改和上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
+					notify("⚠️ 远端变基冲突：请对比修改与上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
 				} else {
 					notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
 				}

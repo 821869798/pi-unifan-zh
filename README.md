@@ -128,7 +128,7 @@ pi install npm:@unifan/pi-commit-zh
   - **Strict ASCII Punctuation**: Parentheses `()` and colon `: ` strictly use ASCII half-width characters for CI / Commitlint compliance.
   - **No Emoji**: Clean, professional plain text commit style.
   - **Smart Auto-Rebase on Push**: In `/commit-push`, if remote contains unpulled commits, it automatically runs `git pull --rebase` and retries push, keeping a clean linear git history.
-  - **Smart Conflict Resolution Guidance**: If rebase encounters conflicts, lists conflicting files and explicitly enforces: **never blindly use `--ours` or `--theirs`; always resolve line-by-line based on diff and context**.
+  - **Smart Conflict Guidance**: If rebase conflicts occur, lists conflict files and enforces resolving by diff and context (never blindly using ours/theirs).
   - **Unpushed Commits Sync**: Automatically pushes unpushed local commits even if the working tree is clean.
 
 ---

@@ -129,23 +129,12 @@ export async function pushCurrentBranch(
 		}
 
 		const filesListText = conflictFiles.length > 0
-			? `\n\n📌 **发生冲突的文件 (${conflictFiles.length} 个)**：\n${conflictFiles.map((f) => `- \`${f}\``).join("\n")}`
-			: "";
+			? `\n${conflictFiles.map((f) => `- \`${f}\``).join("\n")}\n`
+			: "\n";
 
-		const conflictOutput = `⚠️ **远端有新提交，拉取变基 (git pull --rebase) 时与本地提交产生代码冲突！**${filesListText}
-
-🚨 **【代码冲突解决核心铁律（重中之重）】**：
-1. **严禁直接无脑使用 \`--theirs\` 或 \`--ours\`**：绝对不要盲目使用其中一方覆盖另一方，否则极易覆盖远端同事的代码或丢失本地修复！
-2. **必须根据对比修改和上下文解决冲突**：
-   - 逐个打开冲突文件，对照 \`<<<<<<< HEAD\`（远端基线）与 \`>>>>>>>\`（本地提交）的具体改动；
-   - 结合周围类、函数、接口调用与业务上下文，理解两边的意图后逐行融合成正确的最终代码。
-
-🛠️ **解决冲突操作步骤**：
-1. 对比并手工/智能修改上述冲突文件，消除所有冲突标记；
-2. 执行 \`git add <已解决文件>\` 标记冲突已解决；
-3. 执行 \`git rebase --continue\` 完成变基；
-4. 变基成功后重新执行 \`/commit-push\` 推送至远端；
-（若需放弃本次变基恢复原状，可执行 \`git rebase --abort\`）。\n\n底层详细输出：\n${rebaseErr}`;
+		const conflictOutput = `⚠️ **远端变基拉取存在代码冲突**：${filesListText}
+- **解决原则**：严禁直接使用 theirs 或 ours 覆盖，必须根据双方修改对比与代码上下文解决冲突。
+- **后续步骤**：解决冲突 ➔ \`git add <文件>\` ➔ \`git rebase --continue\` ➔ 再次执行 \`/commit-push\`（放弃可 \`git rebase --abort\`）。\n\nGit 输出：\n${rebaseErr}`;
 
 		return {
 			ok: false,
