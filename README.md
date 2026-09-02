@@ -86,21 +86,28 @@ pi install npm:@unifan/pi-commit-zh
 ---
 
 ### 2. 🔍 `review` (Interactive AI Code Review Suite)
-- **Architecture**:
+- **Architecture Highlights**:
   - Re-architected following the battle-tested **Codex & pi-agent-extensions** design (by Armin Ronacher @mitsuhiko).
-  - **Native Session Tree Branch Isolation**: Completely eliminates multi-subagent WebSocket dropouts, proxy streaming errors, and timeouts. Rock-solid stability on any model (GPT, Claude, DeepSeek, GLM, etc.).
+  - **Dual Execution Engine**:
+    - ① **Single-Model Native Review (Default & Recommended)**: 0 subagent dependencies, 0 network dropouts, ultra-fast & 100% reliable.
+    - ② **Multi-Subagent Concurrent Review**: Freely configure **2, 3, 4, 5, or 6** concurrent expert subagents (Bugbot, Security, Perf, Compliance, Comments, History).
 - **Commands**:
-  - **`/review`** 🔍: Launches interactive Chinese TUI menu with 6 review modes:
+  - **`/review`** 🔍: Launches interactive Chinese TUI menu with 6 review modes + settings:
     - ① `Review uncommitted changes` (staged + unstaged working tree, smart default)
     - ② `Review against base branch` (auto merge-base calculation against main/master/dev)
     - ③ `Review specific commit` (search and pick from recent commits)
     - ④ `Review GitHub Pull Request` (auto local checkout via gh CLI)
     - ⑤ `Review folder/files snapshot` (full snapshot audit, non-diff)
     - ⑥ `Custom review focus` (concurrency, GC, security, API contracts)
+    - ⑦ `⚙️ Review Configuration` (configure Single Model vs Multi-Subagent 2~6 experts)
+  - **`/review-config`** ⚙️: Standalone interactive settings command (persisted to `~/.pi/agent/pi-review.json`).
   - **`/review-lite`** ⭐: Directly audits current uncommitted changes without menu prompts.
   - **`/end-review`** 🏁:
     - Automatically structures review findings into P0~P3 action items.
     - Seamlessly jumps back to the original working branch and pre-fills the editor with fix instructions!
+- **CLI Flags**:
+  - `/review --subagents -c 2`: Temporarily launch review with 2 concurrent subagents.
+  - `/review --single`: Force single-model native review.
 - **Standards & Guidelines**:
   - **P0~P3 Strict Severity Tags**: Blocker, Urgent, Normal, Low.
   - **Zero Speculation & Grounded in Diff**: Every finding is backed by source evidence.

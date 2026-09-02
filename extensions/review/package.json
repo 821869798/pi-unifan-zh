@@ -1,7 +1,7 @@
 {
   "name": "@unifan/pi-review-zh",
-  "version": "1.0.12",
-  "description": "Pi 交互式 AI 代码审查扩展（Codex & pi-agent-extensions 架构，全中文，支持分支隔离、未提交改动、分支对比、PR 审查）",
+  "version": "1.0.13",
+  "description": "Pi 交互式 AI 代码审查扩展（支持单模型与多 Subagent 并发 2~6 专家自由切换，Codex 经典架构）",
   "type": "module",
   "license": "MIT",
   "author": "821869798",

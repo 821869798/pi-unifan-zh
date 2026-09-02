@@ -2,8 +2,9 @@
  * Pi 交互式 AI 代码审查扩展 (中文增强版)
  *
  * 参考并融合了 Codex 与 pi-agent-extensions (Armin Ronacher @mitsuhiko) 的经典架构：
- * 采用原生会话与会话分支隔离树技术，彻底摒弃脆弱的多子代理并发通信链路。
- * 零网络断流、零子进程超时、支持任意大模型（GPT/Claude/DeepSeek/免费模型）。
+ * 采用原生会话与会话分支隔离树技术，支持灵活的双执行引擎：
+ * 1. 【单模型原生审查】(默认推荐)：0 依赖、0 网络断流、极速 100% 稳定。
+ * 2. 【多 Subagent 并发审查】：支持自由设置并发 2、3、4、5、6 个专家子代理协同会诊。
  *
  * 支持审查模式：
  * - 审查当前未提交的改动 (工作区 + 暂存区)
@@ -23,6 +24,7 @@ import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@e
 import { DynamicBorder, BorderedLoader } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import path from "node:path";
+import os from "node:os";
 import { promises as fs } from "node:fs";
 
 // 跟踪审查会话来源分支节点（保证单次仅一个活跃审查会话）
@@ -34,6 +36,117 @@ type ReviewSessionState = {
 	active: boolean;
 	originId?: string;
 };
+
+export interface ReviewSettings {
+	/** 模式: "single" (单模型原生审查) | "subagents" (多 Subagent 并发审查) */
+	mode: "single" | "subagents";
+	/** 并发子代理专家数量 (支持 2, 3, 4, 5, 6) */
+	concurrency: number;
+	/** 是否启用门禁裁判长总结去重 */
+	gateEnabled: boolean;
+}
+
+const DEFAULT_SETTINGS: ReviewSettings = {
+	mode: "single",
+	concurrency: 3,
+	gateEnabled: true,
+};
+
+const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "pi-review.json");
+
+async function loadSettings(): Promise<ReviewSettings> {
+	try {
+		const raw = await fs.readFile(CONFIG_PATH, "utf8");
+		const parsed = JSON.parse(raw);
+		return {
+			mode: parsed.mode === "subagents" ? "subagents" : "single",
+			concurrency: Math.min(6, Math.max(2, typeof parsed.concurrency === "number" ? parsed.concurrency : 3)),
+			gateEnabled: parsed.gateEnabled !== false,
+		};
+	} catch {
+		return { ...DEFAULT_SETTINGS };
+	}
+}
+
+async function saveSettings(settings: ReviewSettings): Promise<void> {
+	try {
+		await fs.mkdir(path.dirname(CONFIG_PATH), { recursive: true });
+		await fs.writeFile(CONFIG_PATH, JSON.stringify(settings, null, 2), "utf8");
+	} catch (err) {
+		console.error("保存审查设置失败:", err);
+	}
+}
+
+interface ReviewExpert {
+	id: string;
+	label: string;
+	desc: string;
+	task: string;
+}
+
+const ALL_EXPERTS: ReviewExpert[] = [
+	{
+		id: "pi-review.bugbot",
+		label: "Bug 猎手 (Bugbot)",
+		desc: "逻辑缺陷、空指针、越界越权、死锁与运行时崩溃",
+		task: "深入排查本次代码改动中的业务逻辑缺陷、空指针、越界、并发竞态与未捕获的运行时异常",
+	},
+	{
+		id: "pi-review.security-review",
+		label: "安全专家 (Security)",
+		desc: "未受信任外部输入、SQL注入、路径穿越与越权漏洞",
+		task: "深入排查本次代码改动中的安全隐患、外部输入未严格校验、未参数化语句与注入风险",
+	},
+	{
+		id: "pi-review.perf-review",
+		label: "性能探针 (Perf)",
+		desc: "循环内GC内存分配、CPU热点消耗、算法复杂度与资源泄露",
+		task: "深入排查本次代码改动中的性能退化、高频循环内无谓内存分配 (GC压力) 与算法复杂度",
+	},
+	{
+		id: "pi-review.claude-md-compliance",
+		label: "契约合规 (Compliance)",
+		desc: "架构契约、设计模式、模块边界与规范遵循",
+		task: "排查本次代码改动是否违反项目既有架构契约、模块封装规范与规范指南",
+	},
+	{
+		id: "pi-review.code-comments",
+		label: "注释与可读性 (Comments)",
+		desc: "注释与代码逻辑倒挂、误导性命名与维护性隐患",
+		task: "排查本次代码改动中的可读性隐患、注释与逻辑不符、误导性命名与维护风险",
+	},
+	{
+		id: "pi-review.history-context",
+		label: "历史脉络 (History)",
+		desc: "结合 Git 历史演进判断意图，防止历史问题回归",
+		task: "结合代码演变历史，排查本次改动是否破坏既有历史契约或重现已知缺陷",
+	},
+];
+
+function buildSubagentOrchestrationPrompt(concurrency: number, gateEnabled: boolean): string {
+	const count = Math.min(6, Math.max(2, concurrency));
+	const selected = ALL_EXPERTS.slice(0, count);
+
+	const listText = selected.map((exp, idx) => `${idx + 1}. **${exp.label}** (\`${exp.id}\`)：${exp.desc}`).join("\n");
+	const callsExample = selected
+		.map((exp) => `  - \`subagent({ agent: "${exp.id}", task: "${exp.task}" })\``)
+		.join("\n");
+
+	return `## 🚀 执行方式：多 Subagent 并发专家审查 (当前配置并发数: ${count} 个专家)
+
+当前已配置并行启动以下 ${count} 个专家子代理进行分工审查：
+
+${listText}
+
+### 协作审查执行规范：
+1. **并发调用子代理**：请在当前回合使用 \`subagent\` 工具**同时并行唤起**上述 ${count} 个专家子代理（单回合发起 ${count} 个并发 tool_call，严禁串行逐个调用）：
+${callsExample}
+2. **主审裁判长汇总整理**：当所有专家子代理执行完毕返回发现后，请你作为主审裁判长${gateEnabled ? "（门禁裁决）" : ""}：
+   - 全面综合各专家的审查意见，对相同问题进行去重，剔除误报和低置信度内容。
+   - 严格按照《核心代码审查准则》的 **[P0~P3]** 等级标准排布审查清单。
+   - 给出最终综合裁决与一句话中文总评。
+3. **语言要求**：所有输出必须为纯正中文。`;
+}
 
 function setReviewWidget(ctx: ExtensionContext, active: boolean) {
 	if (!ctx.hasUI) return;
@@ -387,7 +500,99 @@ const REVIEW_PRESETS = [
 	{ value: "pullRequest", label: "审查 Pull Request", description: "(输入 PR 编号或 GitHub URL 本地检出)" },
 	{ value: "folder", label: "审查指定目录/文件", description: "(静态快照审查，非 diff)" },
 	{ value: "custom", label: "自定义审查要求", description: "(输入针对性的安全/性能侧重点)" },
+	{ value: "config", label: "⚙️ 审查配置中心", description: "(切换单模型 / 多Subagent并发 2~6个)" },
 ] as const;
+
+/**
+ * 弹出交互式审查配置界面
+ */
+async function showConfigDialog(ctx: ExtensionContext): Promise<void> {
+	const settings = await loadSettings();
+
+	while (true) {
+		const modeDesc = settings.mode === "single" ? "单模型直接审查 (极速 100% 稳定)" : `多 Subagent 并发 (${settings.concurrency} 个专家)`;
+		const gateDesc = settings.gateEnabled ? "开启" : "关闭";
+
+		const menuItems: SelectItem[] = [
+			{
+				value: "toggle-mode",
+				label: `1. 审查引擎: [${settings.mode === "single" ? "单模型直接审查" : "多Subagent并发"}]`,
+				description: modeDesc,
+			},
+			{
+				value: "concurrency",
+				label: `2. 并发子代理数: [${settings.concurrency} 个专家]`,
+				description: "可自由设置并发 2、3、4、5、6 个专家子代理",
+			},
+			{
+				value: "gate",
+				label: `3. 门禁裁判长去重: [${gateDesc}]`,
+				description: "在多专家返回后由主审裁判长汇总去重并定级",
+			},
+			{
+				value: "save",
+				label: "✅ 保存配置并退出",
+				description: "将当前设置保存到 ~/.pi/agent/pi-review.json",
+			},
+		];
+
+		const choice = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+			const container = new Container();
+			container.addChild(new DynamicBorder((str) => theme.fg("accent", str)));
+			container.addChild(new Text(theme.fg("accent", theme.bold("⚙️  代码审查配置中心"))));
+
+			const selectList = new SelectList(menuItems, menuItems.length, {
+				selectedPrefix: (text) => theme.fg("accent", text),
+				selectedText: (text) => theme.fg("accent", text),
+				description: (text) => theme.fg("muted", text),
+				scrollInfo: (text) => theme.fg("dim", text),
+				noMatch: (text) => theme.fg("warning", text),
+			});
+
+			selectList.onSelect = (item) => done(item.value);
+			selectList.onCancel = () => done(null);
+
+			container.addChild(selectList);
+			container.addChild(new Text(theme.fg("dim", "方向键选择 • 回车修改/确认 • ESC 取消")));
+			container.addChild(new DynamicBorder((str) => theme.fg("accent", str)));
+
+			return {
+				render(w) { return container.render(w); },
+				invalidate() { container.invalidate(); },
+				handleInput(d) { selectList.handleInput(d); tui.requestRender(); },
+			};
+		});
+
+		if (!choice || choice === "save") {
+			await saveSettings(settings);
+			ctx.ui.notify(`已保存审查设置：${settings.mode === "single" ? "单模型直接审查" : `多Subagent模式 (${settings.concurrency} 并发)`}`, "info");
+			return;
+		}
+
+		if (choice === "toggle-mode") {
+			settings.mode = settings.mode === "single" ? "subagents" : "single";
+		} else if (choice === "concurrency") {
+			const concurrencyChoice = await ctx.ui.select(
+				"请选择并发 Subagent 专家数量 (2 ~ 6 个)：",
+				[
+					"2 个专家 (Bug猎手 + 安全专家 · 轻量低延迟)",
+					"3 个专家 (Bug猎手 + 安全专家 + 性能探针 · 均衡推荐)",
+					"4 个专家 (+ 契约规范合规)",
+					"5 个专家 (+ 注释与代码可读性)",
+					"6 个专家 (全量 6 大专家深度会诊)",
+				]
+			);
+			if (concurrencyChoice !== undefined) {
+				const num = Number.parseInt(concurrencyChoice.slice(0, 1), 10);
+				if (num >= 2 && num <= 6) {
+					settings.concurrency = num;
+				}
+			}
+		} else if (choice === "gate") {
+			settings.gateEnabled = !settings.gateEnabled;
+		}
+	}
+}
 
 export default function reviewExtension(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
@@ -412,23 +617,28 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
 	async function showReviewSelector(ctx: ExtensionContext): Promise<ReviewTarget | null> {
 		const smartDefault = await getSmartDefault();
-		const items: SelectItem[] = REVIEW_PRESETS.slice()
-			.sort((a, b) => {
-				if (a.value === smartDefault) return -1;
-				if (b.value === smartDefault) return 1;
-				return 0;
-			})
-			.map((preset) => ({
-				value: preset.value,
-				label: preset.label,
-				description: preset.description,
-			}));
+		const currentSettings = await loadSettings();
 
 		while (true) {
+			const modeTag = currentSettings.mode === "single" ? "单模型模式" : `${currentSettings.concurrency} 专家并发`;
+			const items: SelectItem[] = REVIEW_PRESETS.slice()
+				.sort((a, b) => {
+					if (a.value === "config") return 1;
+					if (b.value === "config") return -1;
+					if (a.value === smartDefault) return -1;
+					if (b.value === smartDefault) return 1;
+					return 0;
+				})
+				.map((preset) => ({
+					value: preset.value,
+					label: preset.label,
+					description: preset.value === "config" ? `[当前: ${modeTag}]` : preset.description,
+				}));
+
 			const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
 				const container = new Container();
 				container.addChild(new DynamicBorder((str) => theme.fg("accent", str)));
-				container.addChild(new Text(theme.fg("accent", theme.bold("请选择代码审查模式"))));
+				container.addChild(new Text(theme.fg("accent", theme.bold(`请选择代码审查模式 [${modeTag}]`))));
 
 				const selectList = new SelectList(items, Math.min(items.length, 10), {
 					selectedPrefix: (text) => theme.fg("accent", text),
@@ -460,6 +670,16 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			});
 
 			if (!result) return null;
+
+			if (result === "config") {
+				await showConfigDialog(ctx);
+				// 重新加载配置并循环展示主菜单
+				const updated = await loadSettings();
+				currentSettings.mode = updated.mode;
+				currentSettings.concurrency = updated.concurrency;
+				currentSettings.gateEnabled = updated.gateEnabled;
+				continue;
+			}
 
 			switch (result) {
 				case "uncommitted":
@@ -692,11 +912,22 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		};
 	}
 
-	async function executeReview(ctx: ExtensionCommandContext, target: ReviewTarget, useFreshSession: boolean): Promise<void> {
+	async function executeReview(
+		ctx: ExtensionCommandContext,
+		target: ReviewTarget,
+		useFreshSession: boolean,
+		runtimeSettings?: Partial<ReviewSettings>,
+	): Promise<void> {
 		if (reviewOriginId) {
 			ctx.ui.notify("当前已有正在进行的审查会话。请先使用 /end-review 结束。", "warning");
 			return;
 		}
+
+		const baseSettings = await loadSettings();
+		const settings: ReviewSettings = {
+			...baseSettings,
+			...runtimeSettings,
+		};
 
 		if (useFreshSession) {
 			const originId = ctx.sessionManager.getLeafId() ?? undefined;
@@ -738,74 +969,113 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		const hint = getUserFacingHint(target);
 		const projectGuidelines = await loadProjectReviewGuidelines(ctx.cwd);
 
-		let fullPrompt = `${REVIEW_RUBRIC}\n\n---\n\n## 本次审查目标与任务指示\n\n${prompt}`;
+		let fullPrompt = REVIEW_RUBRIC;
+
+		if (settings.mode === "subagents") {
+			fullPrompt += `\n\n---\n\n${buildSubagentOrchestrationPrompt(settings.concurrency, settings.gateEnabled)}`;
+		}
+
+		fullPrompt += `\n\n---\n\n## 本次审查目标与任务指示\n\n${prompt}`;
 
 		if (projectGuidelines) {
 			fullPrompt += `\n\n## 本项目附加规范指南\n\n${projectGuidelines}`;
 		}
 
+		const modeLabel = settings.mode === "single" ? "单模型模式" : `多Subagent并发(${settings.concurrency}专家)`;
 		const modeHint = useFreshSession ? " (独立审查分支)" : "";
-		ctx.ui.notify(`正在启动代码审查: ${hint}${modeHint}`, "info");
+		ctx.ui.notify(`正在启动代码审查: ${hint}${modeHint} [${modeLabel}]`, "info");
 
 		pi.sendUserMessage(fullPrompt);
 	}
 
-	function parseArgs(args: string | undefined): ReviewTarget | { type: "pr"; ref: string } | null {
-		if (!args?.trim()) return null;
+	function parseArgs(args: string | undefined): {
+		target: ReviewTarget | { type: "pr"; ref: string } | null;
+		settingsOverride: Partial<ReviewSettings>;
+	} {
+		const settingsOverride: Partial<ReviewSettings> = {};
+		if (!args?.trim()) return { target: null, settingsOverride };
 
-		const parts = args.trim().split(/\s+/);
+		const rawParts = args.trim().split(/\s+/);
+		const parts: string[] = [];
+
+		for (let i = 0; i < rawParts.length; i++) {
+			const p = rawParts[i];
+			if (p === "--subagents" || p === "-s") {
+				settingsOverride.mode = "subagents";
+			} else if (p === "--single") {
+				settingsOverride.mode = "single";
+			} else if (p === "--concurrency" || p === "-c") {
+				const next = rawParts[i + 1];
+				if (next) {
+					const num = Number.parseInt(next, 10);
+					if (num >= 2 && num <= 6) {
+						settingsOverride.concurrency = num;
+						settingsOverride.mode = "subagents";
+						i++;
+						continue;
+					}
+				}
+			} else {
+				parts.push(p);
+			}
+		}
+
+		if (parts.length === 0) {
+			return { target: null, settingsOverride };
+		}
+
 		const subcommand = parts[0]?.toLowerCase();
 
 		switch (subcommand) {
 			case "uncommitted":
 			case "--uncommitted":
 			case "diff":
-				return { type: "uncommitted" };
+				return { target: { type: "uncommitted" }, settingsOverride };
 
 			case "branch":
 			case "--branch": {
 				const branch = parts[1];
-				if (!branch) return null;
-				return { type: "baseBranch", branch };
+				if (!branch) return { target: null, settingsOverride };
+				return { target: { type: "baseBranch", branch }, settingsOverride };
 			}
 
 			case "commit":
 			case "--commit": {
 				const sha = parts[1];
-				if (!sha) return null;
+				if (!sha) return { target: null, settingsOverride };
 				const title = parts.slice(2).join(" ") || undefined;
-				return { type: "commit", sha, title };
+				return { target: { type: "commit", sha, title }, settingsOverride };
 			}
 
 			case "custom":
 			case "--custom": {
 				const instructions = parts.slice(1).join(" ");
-				if (!instructions) return null;
-				return { type: "custom", instructions };
+				if (!instructions) return { target: null, settingsOverride };
+				return { target: { type: "custom", instructions }, settingsOverride };
 			}
 
 			case "folder":
 			case "--folder": {
 				const paths = parseReviewPaths(parts.slice(1).join(" "));
-				if (paths.length === 0) return null;
-				return { type: "folder", paths };
+				if (paths.length === 0) return { target: null, settingsOverride };
+				return { target: { type: "folder", paths }, settingsOverride };
 			}
 
 			case "pr":
 			case "--pr": {
 				const ref = parts[1];
-				if (!ref) return null;
-				return { type: "pr", ref };
+				if (!ref) return { target: null, settingsOverride };
+				return { target: { type: "pr", ref }, settingsOverride };
 			}
 
 			default:
-				return { type: "custom", instructions: args.trim() };
+				return { target: { type: "custom", instructions: parts.join(" ") }, settingsOverride };
 		}
 	}
 
 	// 注册 /review 主命令
 	pi.registerCommand("review", {
-		description: "启动 AI 代码审查 (交互式选择：未提交改动/分支对比/指定Commit/PR/目录/自定义)",
+		description: "启动 AI 代码审查 (交互式选择：未提交改动/分支对比/指定Commit/PR/目录/自定义/配置)",
 		handler: async (args, ctx) => {
 			if (!ctx.hasUI) {
 				ctx.ui.notify("代码审查需要交互式终端环境", "error");
@@ -825,16 +1095,16 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
 			let target: ReviewTarget | null = null;
 			let fromSelector = false;
-			const parsed = parseArgs(args);
+			const { target: parsedTarget, settingsOverride } = parseArgs(args);
 
-			if (parsed) {
-				if (parsed.type === "pr") {
-					target = await handlePrCheckout(ctx, parsed.ref);
+			if (parsedTarget) {
+				if (parsedTarget.type === "pr") {
+					target = await handlePrCheckout(ctx, parsedTarget.ref);
 					if (!target) {
 						ctx.ui.notify("PR 检出失败，返回主菜单。", "warning");
 					}
 				} else {
-					target = parsed;
+					target = parsedTarget;
 				}
 			}
 
@@ -875,15 +1145,27 @@ export default function reviewExtension(pi: ExtensionAPI) {
 					useFreshSession = choice.startsWith("独立分支审查");
 				}
 
-				await executeReview(ctx, target, useFreshSession);
+				await executeReview(ctx, target, useFreshSession, settingsOverride);
 				return;
 			}
 		},
 	});
 
+	// 注册 /review-config 配置命令
+	pi.registerCommand("review-config", {
+		description: "配置代码审查模式 (切换单模型直接审查 / 多 Subagent 并发 2~6 个专家)",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) {
+				ctx.ui.notify("review-config 需要交互式终端环境", "error");
+				return;
+			}
+			await showConfigDialog(ctx);
+		},
+	});
+
 	// 极速单兵别名命令：/review-lite
 	pi.registerCommand("review-lite", {
-		description: "极速代码审查 (直接对当前工作区未提交改动做深度审查，无需弹窗选择)",
+		description: "极速代码审查 (直接对当前工作区未提交改动做审查，无需弹窗选择)",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) {
 				ctx.ui.notify("代码审查需要交互式终端环境", "error");
