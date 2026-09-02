@@ -8,32 +8,27 @@ import {
 	pushCurrentBranch,
 	stageAll,
 } from "./src/git.js";
-import { COMMIT_SYSTEM_PROMPT } from "./src/prompt.ts";
+import { COMMIT_SYSTEM_PROMPT } from "./src/prompt.js";
 
 interface ParsedCommitArgs {
-	yes: boolean;
 	stageAll: boolean;
 	hint?: string;
 }
 
 function parseArgs(raw: string): ParsedCommitArgs {
 	const tokens = raw.trim().split(/\s+/).filter(Boolean);
-	let yes = false;
 	let shouldStageAll = false;
 	const hintParts: string[] = [];
 
 	for (const t of tokens) {
-		if (t === "-y" || t === "--yes") {
-			yes = true;
-		} else if (t === "-a" || t === "--all") {
+		if (t === "-a" || t === "--all") {
 			shouldStageAll = true;
-		} else {
+		} else if (t !== "-y" && t !== "--yes") {
 			hintParts.push(t);
 		}
 	}
 
 	return {
-		yes,
 		stageAll: shouldStageAll,
 		hint: hintParts.join(" ").trim() || undefined,
 	};
@@ -63,6 +58,7 @@ async function generateCommitMessage(
 		try {
 			const provider = ctx.modelRegistry.getProvider(ctx.model.provider);
 			if (provider) {
+				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
 				const response = await provider
 					.streamSimple(
 						ctx.model,
@@ -76,7 +72,7 @@ async function generateCommitMessage(
 								},
 							],
 						},
-						{ maxTokens: 800 },
+						{ apiKey: auth?.apiKey, headers: auth?.headers, maxTokens: 800 },
 					)
 					.result();
 
@@ -86,16 +82,15 @@ async function generateCommitMessage(
 					.trim();
 
 				if (text) {
-					// Clean any unexpected code blocks
 					return text.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
 				}
 			}
-		} catch {
-			/* fallback below */
+		} catch (err) {
+			console.error("pi-commit streamSimple error:", err);
 		}
 	}
 
-	// Simple heuristic fallback
+	// 智能保底推断
 	const firstFile = changedFiles[0] ?? "core";
 	const scope = firstFile.split(/[/\\]/)[0] || "core";
 	return `chore(${scope}): 更新代码与相关配置\n\n- 更新了 ${changedFiles.length} 个文件`;
@@ -135,40 +130,13 @@ export default function (pi: ExtensionAPI) {
 		notify("正在深度分析代码改动并生成中文 Commit Message...", "info");
 		const commitMessage = await generateCommitMessage(ctx, stagedDiff || unstagedDiff, changedFiles, parsed.hint);
 
-		let finalMessage = commitMessage;
-
-		if (!parsed.yes && ctx.hasUI) {
-			const choice = await ctx.ui.select(
-				`✨ AI 生成的提交信息:\n\n${commitMessage}\n\n请选择操作:`,
-				[
-					{ label: "✅ 立即以此信息提交 (Commit)", value: "commit" },
-					{ label: "📝 编辑后再提交 (Edit & Commit)", value: "edit" },
-					{ label: "❌ 取消提交 (Cancel)", value: "cancel" },
-				],
-			);
-
-			if (!choice || choice === "cancel") {
-				notify("已取消本次提交。", "info");
-				return;
-			}
-
-			if (choice === "edit") {
-				const edited = await ctx.ui.editor("编辑 Commit Message", commitMessage);
-				if (!edited || !edited.trim()) {
-					notify("提交信息为空，已取消提交。", "warning");
-					return;
-				}
-				finalMessage = edited.trim();
-			}
-		}
-
-		const commitRes = await commitWithMsg(ctx.cwd, finalMessage);
+		const commitRes = await commitWithMsg(ctx.cwd, commitMessage);
 		if (!commitRes.ok) {
 			notify(`Git 提交失败: ${commitRes.output}`, "error");
 			return;
 		}
 
-		const firstLine = finalMessage.split("\n")[0];
+		const firstLine = commitMessage.split("\n")[0];
 		notify(`✅ 成功提交: ${firstLine}`, "info");
 
 		let pushText = "";
@@ -189,16 +157,15 @@ export default function (pi: ExtensionAPI) {
 
 		pi.sendMessage({
 			customType: "pi-commit-result",
-			content: `### 📦 Git 提交完成\n\n\`\`\`text\n${finalMessage}\n\`\`\`${pushText}`,
+			content: `### 📦 Git 提交完成\n\n\`\`\`text\n${commitMessage}\n\`\`\`${pushText}`,
 			display: true,
 		});
 	};
 
 	pi.registerCommand("commit", {
-		description: "智能 Git 提交助手：自动分析 diff 生成标准中文 Conventional Commit 并提交 (-y 直接提交, -a 暂存全部)",
+		description: "智能 Git 提交助手：自动分析 diff 生成标准中文 Commit 并直接提交 (-a 自动暂存全部修改)",
 		getArgumentCompletions: (prefix: string) => {
 			const options = [
-				{ value: "-y", label: "-y / --yes", description: "直接提交无需二次确认" },
 				{ value: "-a", label: "-a / --all", description: "自动暂存全部修改 (git add -A)" },
 			];
 			const trimmed = prefix.trimStart();
@@ -211,7 +178,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("commit-push", {
-		description: "智能 Git 提交并推流：生成标准中文 Commit 后自动执行 git push",
+		description: "智能 Git 提交并推流：生成标准中文 Commit 后自动提交并执行 git push (支持自动变基重试)",
 		handler: async (args, ctx) => {
 			await handleCommitCommand(args, ctx, true);
 		},
