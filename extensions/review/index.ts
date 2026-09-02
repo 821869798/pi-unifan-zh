@@ -200,6 +200,12 @@ type ReviewTarget =
 	| { type: "folder"; paths: string[] };
 
 // 针对不同审查目标的中文提示词
+const LITE_REVIEW_PROMPT =
+	"【极速体检模式】请直接运行 `git diff` 快速排查当前未提交改动中的高危逻辑缺陷与安全漏洞。只抓严重级别最高的问题，快速输出审查结论。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
+
+const FULL_REVIEW_PROMPT =
+	"【全量深度审查模式】请对当前代码改动展开全方位的深度审查。直接运行 `git diff` 全量审阅代码改动，深入排查潜在的业务逻辑隐患、边界异常、并发安全、性能GC开销与架构合规性，直接给出按优先级排序的详尽审查清单。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
+
 const UNCOMMITTED_PROMPT =
 	"请审查当前代码的所有改动（包含暂存区、未暂存区以及新增文件）。直接运行 `git diff` 与 `git status` 查看代码差异，并直接输出审查发现。严禁输出任何步骤清单或待办列表。所有输出必须使用纯正中文。";
 
@@ -425,9 +431,15 @@ async function getDefaultBranch(pi: ExtensionAPI): Promise<string> {
 	return "main";
 }
 
-async function buildReviewPrompt(pi: ExtensionAPI, target: ReviewTarget): Promise<string> {
+async function buildReviewPrompt(
+	pi: ExtensionAPI,
+	target: ReviewTarget,
+	reviewStyle: "lite" | "full" | "standard" = "standard",
+): Promise<string> {
 	switch (target.type) {
 		case "uncommitted":
+			if (reviewStyle === "lite") return LITE_REVIEW_PROMPT;
+			if (reviewStyle === "full") return FULL_REVIEW_PROMPT;
 			return UNCOMMITTED_PROMPT;
 
 		case "baseBranch": {
@@ -916,6 +928,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		target: ReviewTarget,
 		useFreshSession: boolean,
 		runtimeSettings?: Partial<ReviewSettings>,
+		reviewStyle: "lite" | "full" | "standard" = "standard",
 	): Promise<void> {
 		if (reviewOriginId) {
 			ctx.ui.notify("当前已有正在进行的审查会话。请先使用 /end-review 结束。", "warning");
@@ -964,29 +977,26 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			pi.appendEntry(REVIEW_STATE_TYPE, { active: true, originId: lockedOriginId });
 		}
 
-		const prompt = await buildReviewPrompt(pi, target);
+		const prompt = await buildReviewPrompt(pi, target, reviewStyle);
 		const hint = getUserFacingHint(target);
 		const projectGuidelines = await loadProjectReviewGuidelines(ctx.cwd);
 
-		const MANDATORY_CHINESE_HEADER = `> 🚨【核心语言指令 - 最高优先级】\n> 你的**所有思维链（Thinking）、中间分析过程、代码排查笔记、审查发现与最终裁决结论**必须 100% 全程使用纯正中文进行思考与撰写！绝对禁止输出任何英文思考段落、英文标题或英文总结！`;
-
-		let fullPrompt = `${MANDATORY_CHINESE_HEADER}\n\n${REVIEW_RUBRIC}`;
+		let fullPrompt = REVIEW_RUBRIC;
 
 		if (settings.mode === "subagents") {
 			fullPrompt += `\n\n---\n\n${buildSubagentOrchestrationPrompt(settings.concurrency, settings.gateEnabled)}`;
 		}
 
-		fullPrompt += `\n\n---\n\n## 本次审查目标与任务指示\n\n${prompt}`;
+		fullPrompt += `\n\n---\n\n## 本次审查任务指示\n\n${prompt}`;
 
 		if (projectGuidelines) {
 			fullPrompt += `\n\n## 本项目附加规范指南\n\n${projectGuidelines}`;
 		}
 
-		fullPrompt += `\n\n> 🚨【最终语言校验】：请再次检查你的输出，确保通篇 100% 均为流畅纯正的中文，绝无任何英文说明！`;
-
+		const styleTag = reviewStyle === "lite" ? "[极速]" : reviewStyle === "full" ? "[全量]" : "";
 		const modeLabel = settings.mode === "single" ? "单模型模式" : `多Subagent并发(${settings.concurrency}专家)`;
 		const modeHint = useFreshSession ? " (独立审查分支)" : "";
-		ctx.ui.notify(`正在启动代码审查: ${hint}${modeHint} [${modeLabel}]`, "info");
+		ctx.ui.notify(`正在启动代码审查 ${styleTag}: ${hint}${modeHint} [${modeLabel}]`, "info");
 
 		pi.sendUserMessage(fullPrompt);
 	}
@@ -1186,7 +1196,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			await executeReview(ctx, { type: "uncommitted" }, false);
+			await executeReview(ctx, { type: "uncommitted" }, false, undefined, "lite");
 		},
 	});
 
@@ -1223,7 +1233,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				}
 			}
 
-			await executeReview(ctx, finalTarget, false, settingsOverride);
+			await executeReview(ctx, finalTarget, false, settingsOverride, "full");
 		},
 	});
 
