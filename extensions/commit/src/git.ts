@@ -55,7 +55,46 @@ export async function commitWithMsg(cwd: string, message: string): Promise<{ ok:
 	return { ok: res.ok, output: res.ok ? res.stdout : res.stderr };
 }
 
-export async function pushCurrentBranch(cwd: string): Promise<{ ok: boolean; output: string }> {
-	const res = await runGit(cwd, ["push"]);
-	return { ok: res.ok, output: res.ok ? res.stdout : res.stderr };
+export async function pushCurrentBranch(
+	cwd: string,
+	onLog?: (msg: string) => void,
+): Promise<{ ok: boolean; output: string; autoRebased?: boolean }> {
+	const initialPush = await runGit(cwd, ["push"]);
+	if (initialPush.ok) {
+		return { ok: true, output: initialPush.stdout || "推送成功" };
+	}
+
+	const pushError = `${initialPush.stderr} ${initialPush.stdout}`.toLowerCase();
+	const needsPull =
+		pushError.includes("fetch first") ||
+		pushError.includes("non-fast-forward") ||
+		pushError.includes("rejected") ||
+		pushError.includes("behind");
+
+	if (!needsPull) {
+		return { ok: false, output: initialPush.stderr || initialPush.stdout };
+	}
+
+	if (onLog) onLog("检测到远端有新提交，正在自动执行变基拉取 (git pull --rebase)...");
+
+	const pullRebase = await runGit(cwd, ["pull", "--rebase"]);
+	if (!pullRebase.ok) {
+		const rebaseErr = `${pullRebase.stderr} ${pullRebase.stdout}`;
+		return {
+			ok: false,
+			output: `远端有新提交，尝试自动变基 (git pull --rebase) 时产生代码冲突。\n${rebaseErr}\n请手动解决冲突后执行 git rebase --continue，或执行 git rebase --abort 撤销变基。`,
+		};
+	}
+
+	if (onLog) onLog("变基拉取成功（无代码冲突），正在重新推送到远端...");
+	const retryPush = await runGit(cwd, ["push"]);
+	if (retryPush.ok) {
+		return {
+			ok: true,
+			output: "远端有新提交，已自动完成 git pull --rebase 变基并成功推送到远端！",
+			autoRebased: true,
+		};
+	}
+
+	return { ok: false, output: retryPush.stderr || retryPush.stdout };
 }

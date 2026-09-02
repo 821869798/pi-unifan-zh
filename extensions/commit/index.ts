@@ -174,13 +174,16 @@ export default function (pi: ExtensionAPI) {
 		let pushText = "";
 		if (andPush) {
 			notify("正在推送到远端仓库 (git push)...", "info");
-			const pushRes = await pushCurrentBranch(ctx.cwd);
+			const pushRes = await pushCurrentBranch(ctx.cwd, (msg) => notify(msg, "info"));
 			if (pushRes.ok) {
-				notify("🚀 成功推送到远端仓库！", "info");
-				pushText = "\n\n🚀 **已自动推送到远端分支**";
+				const successMsg = pushRes.autoRebased
+					? "🚀 远端有新提交，已自动完成变基 (pull --rebase) 并成功推送！"
+					: "🚀 成功推送到远端仓库！";
+				notify(successMsg, "info");
+				pushText = `\n\n${successMsg}`;
 			} else {
-				notify(`⚠️ 推送失败: ${pushRes.output}`, "warning");
-				pushText = `\n\n⚠️ **推送到远端失败**: ${pushRes.output}`;
+				notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
+				pushText = `\n\n⚠️ **推送到远端失败**:\n${pushRes.output}`;
 			}
 		}
 
