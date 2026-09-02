@@ -16,8 +16,8 @@
  *
  * 会话分支隔离：
  * - 默认支持在新分支 (Empty branch) 中开启审查，保持主会话干净
- * - 审查过程中常驻黄色横幅提醒，完成后敲 /end-review
- * - /end-review 自动将审查发现 (P0~P3) 结构化汇总并一键跳回原会话位置，自动填入修复指令
+ * - 审查过程中常驻黄色横幅提醒，完成后敲 /review-end
+ * - /review-end 自动将审查发现 (P0~P3) 结构化汇总并一键跳回原会话位置，自动填入修复指令
  */
 
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -156,7 +156,7 @@ function setReviewWidget(ctx: ExtensionContext, active: boolean) {
 	}
 
 	ctx.ui.setWidget("review", (_tui, theme) => {
-		const text = new Text(theme.fg("warning", "🔍 代码审查分支进行中，审查完毕后输入 /end-review 返回主对话"), 0, 0);
+		const text = new Text(theme.fg("warning", "🔍 代码审查分支进行中，审查完毕后输入 /review-end 返回主对话"), 0, 0);
 		return {
 			render(width: number) {
 				return text.render(width);
@@ -932,7 +932,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		reviewStyle: "lite" | "full" | "standard" = "standard",
 	): Promise<void> {
 		if (reviewOriginId) {
-			ctx.ui.notify("当前已有正在进行的审查会话。请先使用 /end-review 结束。", "warning");
+			ctx.ui.notify("当前已有正在进行的审查会话。请先使用 /review-end 结束。", "warning");
 			return;
 		}
 
@@ -1097,7 +1097,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			}
 
 			if (reviewOriginId) {
-				ctx.ui.notify("当前已有正在进行的审查。请先输入 /end-review 完成审查并返回。", "warning");
+				ctx.ui.notify("当前已有正在进行的审查。请先输入 /review-end 完成审查并返回。", "warning");
 				return;
 			}
 
@@ -1187,7 +1187,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			}
 
 			if (reviewOriginId) {
-				ctx.ui.notify("当前已有正在进行的审查。请先输入 /end-review 完成审查并返回。", "warning");
+				ctx.ui.notify("当前已有正在进行的审查。请先输入 /review-end 完成审查并返回。", "warning");
 				return;
 			}
 
@@ -1211,7 +1211,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			}
 
 			if (reviewOriginId) {
-				ctx.ui.notify("当前已有正在进行的审查。请先输入 /end-review 完成审查并返回。", "warning");
+				ctx.ui.notify("当前已有正在进行的审查。请先输入 /review-end 完成审查并返回。", "warning");
 				return;
 			}
 
@@ -1257,14 +1257,12 @@ export default function reviewExtension(pi: ExtensionAPI) {
 - 修复：最小修复建议
 `;
 
-	// 注册 /end-review 结束审查并返回命令
-	pi.registerCommand("end-review", {
-		description: "完成代码审查并一键返回主会话位置 (自动汇总待办并回填修复指令)",
-		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("end-review 需要交互式终端环境", "error");
-				return;
-			}
+	// 注册 /review-end (及向后兼容的 /end-review) 结束审查并返回命令
+	const handleReviewEnd = async (_args: string | undefined, ctx: ExtensionCommandContext) => {
+		if (!ctx.hasUI) {
+			ctx.ui.notify("review-end 需要交互式终端环境", "error");
+			return;
+		}
 
 			if (!reviewOriginId) {
 				const state = getReviewState(ctx);
@@ -1287,7 +1285,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			]);
 
 			if (summaryChoice === undefined) {
-				ctx.ui.notify("已取消。输入 /end-review 可再次返回。", "info");
+				ctx.ui.notify("已取消。输入 /review-end 可再次返回。", "info");
 				return;
 			}
 
@@ -1351,7 +1349,18 @@ export default function reviewExtension(pi: ExtensionAPI) {
 					ctx.ui.notify(`返回失败: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}
 			}
-		},
+		}
+	};
+
+	pi.registerCommand("review-end", {
+		description: "完成代码审查并一键返回主会话位置 (自动汇总待办并回填修复指令)",
+		handler: handleReviewEnd,
+	});
+
+	// 向后兼容保留 /end-review
+	pi.registerCommand("end-review", {
+		description: "完成代码审查并一键返回主会话位置 (/review-end 别名)",
+		handler: handleReviewEnd,
 	});
 
 	// 针对【代码开发会话·修复方】的提示词模板
@@ -1365,23 +1374,24 @@ export default function reviewExtension(pi: ExtensionAPI) {
 {content}
 ---
 
-## 执行建议：
-1. 结合代码上下文逐条核验上述审查意见。
-2. 合理且存在隐患的问题：修改对应代码并保证逻辑自洽。
-3. 有争议或误报的问题：简要说明理由与考量。
-4. 在最终回复末尾，整理一份简明报告供复核：
+## 核心处理原则：
+1. **有道理的就修改，并总结修改了啥**：结合代码上下文逐条仔细核验。确实存在缺陷或隐患的，直接修改代码并保证逻辑自洽；在总结中明确说明修改了哪些文件、函数及具体改了什么。
+2. **没有道理的就在总结里解释**：若某些意见属于误报、不符合实际业务场景或既有架构已有防护，请在总结中清晰解释为什么没有道理，无需修改。
+3. **输出整改报告**（供复核人员查验）：在最终回复末尾，严格按以下格式总结：
 
 ### 🛠️ 整改与回复报告
-- **[已修复] [问题标题]**：说明修改文件与修复方案
-- **[无需修改/已说明] [问题标题]**：说明理由
+- **[已修复] [问题标题]**
+  - **修改了什么**：说明修改的文件、函数及具体改动内容
+- **[无需修改/已说明] [问题标题]**
+  - **为何没有道理**：清晰解释为什么该条意见不适用或为什么无需修改
 
 ### 📝 整改总结
-一句话总结本次变动。
+一句话总结本次代码变动。
 `;
 
 	// 针对【审查复核会话·审查方】的提示词模板
 	const REVIEWER_RECHECK_PROMPT_TEMPLATE = `> 语言要求：全流程使用纯正中文。
-> 提示：当前为只读复核模式，请勿修改代码或执行提交，仅对照 diff 进行复核。
+> 提示：当前为只读复核模式，请勿修改代码或执行提交。
 
 # 复核开发者的代码修复与整改说明
 
@@ -1390,12 +1400,15 @@ export default function reviewExtension(pi: ExtensionAPI) {
 {content}
 ---
 
-## 执行建议：
-1. 运行 \`git diff\` 查看最新改动，按需使用 \`read\` 查阅关键代码上下文。
-2. 对照上述整改说明，验证问题是否已被妥善解决，确认未引入新隐患。
-3. 给出复核结论：
-   - 若全部解决且质量良好：输出 **## ✅【审核通过，可以提交代码】**
-   - 若仍有问题：输出 **## ❌【仍有阻塞问题需继续修改】** 并简要说明剩余问题。
+## 核心复核原则：
+1. **不要只听信总结报告，必须实际去看改了啥**：
+   - 绝不能因为报告声称“已修复”就盲目相信。必须立即运行 \`git diff\` 亲眼核对实际改动代码，并按需使用 \`read\` 查看改动前后的完整方法与类上下文。
+2. **逐项实事求是核验**：
+   - 对照开发者声称“已修复”的项，检查实际 diff 是否真正彻底解决了缺陷，且未引入新的逻辑隐患或并发风险。
+   - 对照开发者声称“无需修改”的解释，客观评估其理由是否合乎技术事实。
+3. **给出复核结论**：
+   - 若实测代码已全部妥善修复且质量良好：输出 **## ✅【审核通过，可以提交代码】**
+   - 若实际代码未修改、改动不彻底或引入新问题：输出 **## ❌【仍有阻塞问题需继续修改】** 并指出具体代码缺陷与修改要求。
 `;
 
 	function detectReviewSyncRole(

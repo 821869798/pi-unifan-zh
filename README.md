@@ -103,10 +103,8 @@ pi install npm:@unifan/pi-commit-zh
   - **`/review-config`** ⚙️: Standalone interactive settings command (persisted to `~/.pi/agent/pi-review.json`).
   - **`/review-lite`** ⭐: Directly audits current uncommitted changes without menu prompts.
   - **`/review-full`** 🚀: Full-scope deep review on all changes without redundant setup steps or checklists.
-  - **`/review-sync`** 🔄: Dual-session review relay loop (auto-detects role: dev fixes code & summarizes, reviewer validates diff without editing until approved).
-  - **`/end-review`** 🏁:
-    - Automatically structures review findings into P0~P3 action items.
-    - Seamlessly jumps back to the original working branch and pre-fills the editor with fix instructions!
+  - **`/review-sync`** 🔄: Dual-session review relay loop (auto-detects role: dev fixes code & explains why, reviewer validates actual diff without editing until approved).
+  - **`/review-end`** 🏁: Finish review, summarize action items, and jump back to the main development session (alias: `/end-review`).
 - **CLI Flags**:
   - `/review --subagents -c 2`: Temporarily launch review with 2 concurrent subagents.
   - `/review --single`: Force single-model native review.
