@@ -22,6 +22,7 @@ export interface ReviewDirectiveInput {
 	threshold: number;
 	verdictPolicy?: "strict" | "legacy";
 	lite: boolean;
+	perf?: boolean;
 	gateEnabled?: boolean;
 	cwd: string;
 	workspacePath: string;
@@ -32,21 +33,24 @@ export interface ReviewDirectiveInput {
 }
 
 export function buildReviewDirective(input: ReviewDirectiveInput): string {
-	const { target, reviewers, gateModel, gateThinking, threshold, lite, cwd, workspacePath, manifestPath, diffPath, workflowPath } = input;
+	const { target, reviewers, gateModel, gateThinking, threshold, lite, perf, cwd, workspacePath, manifestPath, diffPath, workflowPath } = input;
+	const isSingle = lite || Boolean(perf);
 	const policy = input.verdictPolicy ?? "strict";
-	const gateOn = !lite && input.gateEnabled !== false;
+	const gateOn = !isSingle && input.gateEnabled !== false;
 	const budgets = input.budgets ?? resolveLeanBudgets();
 	const gateModelWithThinking = withThinkingSuffix(gateModel, gateThinking);
 	const blocks: string[] = [];
 
-	blocks.push("# 代码审查流程 (极简 Token 模式)");
+	const modeLabel = perf ? " (性能与基准测试专属模式)" : lite ? " (极速单兵模式)" : "";
+
+	blocks.push(`# 代码审查流程${modeLabel}`);
 	blocks.push("");
 	if (target.userContext?.trim()) {
 		blocks.push(`**用户指令/侧重点:** ${target.userContext.trim()}`);
 		blocks.push("");
 	}
 	blocks.push(
-		`请对本次代码改动 (${target.label}) 进行审查。插件已准备好目标工作区、diff 文件及运行清单。你需要执行一次 workflowScript 启动 ${reviewers.length} 个并发审查专家${lite ? " (极速单兵模式)" : ""}${gateOn ? " + 门禁裁判长" : ""}，随后调用 \`pi_review_report\` 工具完成报告渲染与归档。切勿在聊天中直接重复书写未加工的原始问题细节。`,
+		`请对本次代码改动 (${target.label}) 进行审查。插件已准备好目标工作区、diff 文件及运行清单。你需要执行一次 workflowScript 启动 ${reviewers.length} 个审查专家${modeLabel}${gateOn ? " + 门禁裁判长" : ""}，随后调用 \`pi_review_report\` 工具完成报告渲染与归档。切勿在聊天中直接重复书写未加工的原始问题细节。`,
 	);
 	blocks.push("");
 	blocks.push("## 硬性规则（严禁违反）");
@@ -54,8 +58,8 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	blocks.push("- **语言要求**：所有面向用户的输出（包括工作流待办清单、状态汇报、问题总结与回复）**必须使用纯正中文**。");
 	blocks.push("- 在本次审查中**只能且必须调用一次** `subagent` 工具：即第 2 步的 workflowScript 调用。");
 	blocks.push(
-		lite
-			? "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行单兵审查专家——严禁多次调用。"
+		isSingle
+			? "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行专家——严禁多次调用。"
 			: gateOn
 				? "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行**所有**专家，并通过 `runs.run(\"gate\", ...)` 运行门禁裁判长——严禁每个专家单独调用一次，严禁串行多波次调用。"
 				: "- 第 2 步必须是**单次** `subagent({ workflowScript, async:false, ... })` 调用，通过 `runs.all([...])` 并发执行**所有**专家——严禁多波次单独调用。",
@@ -89,11 +93,13 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	const todoSteps = [
 		`确认插件准备的运行清单可读: ${manifestPath}`,
 		`确认目标工作区可读: ${workspacePath}`,
-		lite
-			? "执行 workflowScript: 启动单兵极速审查专家 (单次 subagent 调用)"
-			: gateOn
-				? `执行 workflowScript: 启动 ${reviewers.length} 个并发审查专家 + 门禁裁判长 (单次 subagent 调用)`
-				: `执行 workflowScript: 启动 ${reviewers.length} 个并发审查专家 (单次 subagent 调用)`,
+		perf
+			? "执行 workflowScript: 启动专项性能与基准测试审查专家 (单次 subagent 调用)"
+			: lite
+				? "执行 workflowScript: 启动单兵极速审查专家 (单次 subagent 调用)"
+				: gateOn
+					? `执行 workflowScript: 启动 ${reviewers.length} 个并发审查专家 + 门禁裁判长 (单次 subagent 调用)`
+					: `执行 workflowScript: 启动 ${reviewers.length} 个并发审查专家 (单次 subagent 调用)`,
 		"调用 `pi_review_report` 工具提交审查结果并生成中文报告",
 	];
 	for (const s of todoSteps) blocks.push(`- [ ] ${s}`);
@@ -124,7 +130,7 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 		gateThinking,
 		gateModel,
 		budgets,
-		lite,
+		lite: isSingle,
 		gateEnabled: gateOn,
 		threshold,
 		verdictPolicy: policy,
@@ -159,8 +165,8 @@ export function buildReviewDirective(input: ReviewDirectiveInput): string {
 	blocks.push("## 第 2 步 — 执行代码审查（仅调用一次 subagent workflowScript）");
 	blocks.push("");
 	blocks.push(
-		lite
-			? "该脚本会启动单兵极速审查专家，输出包含 JSON 块的 Markdown 报告。"
+		isSingle
+			? "该脚本会启动审查专家，输出包含 JSON 块的 Markdown 报告。"
 			: gateOn
 				? "该脚本会并发启动各个审查专家，随后将报告汇总给门禁裁判长，裁判长输出裁决报告与 JSON 块。"
 				: "该脚本会并发启动各个审查专家，输出 Markdown 报告。",
@@ -229,7 +235,7 @@ export function buildWorkflowScript(input: {
 	const gateOn = !lite && gateEnabled;
 
 	const READ_ONLY_PREFIX =
-		"只读任务（READ-ONLY）——仅执行审查分析。严禁写入或修改任何文件。仅返回审查发现。所有分析总结、问题描述与建议必须使用纯正中文。";
+		"只读任务（READ-ONLY）——仅执行审查分析与基准测试。严禁修改源码文件。仅返回审查发现。所有分析总结、问题描述与建议必须使用纯正中文。";
 
 	const lines: string[] = [];
 	lines.push("");
@@ -264,6 +270,11 @@ export function buildWorkflowScript(input: {
 		if (r.id === "bugbot" || r.id === "security-review") {
 			taskParts.push(
 				"若 change-profile.docsOnly 为 true，返回跳过状态：SKIPPED: docs-only。否则优先从 diff 本身分析，最多只读取 3 个额外上下文文件。",
+			);
+		}
+		if (r.id === "perf-review") {
+			taskParts.push(
+				"重点排查循环内高频GC分配、算法复杂度、锁竞争、内存泄漏，并主动探测和执行工作区中的Benchmark基准测试。",
 			);
 		}
 		if (userContext?.trim()) {

@@ -1,18 +1,5 @@
 /**
  * Parse `/review` command arguments.
- *
- * Surface is intentionally minimal:
- *   - `--lite`      fast single-agent review (no fan-out, no gate)
- *   - `--no-spawn`  hidden dry-run (prints the resolved plan, no subprocess)
- *   - trailing freeform text → user review request (focus / requirements /
- *     PR url / context), injected into reviewers and gate via target.userContext
- *     (see src/prep.ts and src/git-input.ts)
- *
- * Removed flags (--threshold / --reviewer / --score-per-issue / --diff) are
- * accepted-but-ignored for graceful degradation of old invocations: a valued
- * legacy flag also consumes its next token so its value does not leak into
- * `input`. Those capabilities now live in config.json (`/review-config`).
- * `--gate-model <id>` remains an active per-run override.
  */
 
 export interface ParsedReviewArgs {
@@ -22,11 +9,12 @@ export interface ParsedReviewArgs {
 	noSpawn: boolean;
 	/** Single-agent fast mode: one reviewer, no gate. */
 	lite: boolean;
+	/** Dedicated performance review mode: perf-reviewer with benchmark capabilities. */
+	perf: boolean;
 	/** Override the gate model for this run (otherwise config.gate.model). */
 	gateModel?: string;
 }
 
-/** Removed valued flags — silently skip flag + value to keep input clean. */
 const LEGACY_VALUED_FLAGS = new Set([
 	"--threshold",
 	"--reviewer",
@@ -36,13 +24,13 @@ const LEGACY_VALUED_FLAGS = new Set([
 
 export function parseReviewArgs(raw: string): ParsedReviewArgs {
 	const tokens = tokenize(raw);
-	const result: ParsedReviewArgs = { noSpawn: false, lite: false };
+	const result: ParsedReviewArgs = { noSpawn: false, lite: false, perf: false };
 	const inputParts: string[] = [];
 
 	for (let i = 0; i < tokens.length; i++) {
 		const t = tokens[i];
 		if (LEGACY_VALUED_FLAGS.has(t)) {
-			i++; // consume the value too
+			i++;
 			continue;
 		}
 		if (t === "--no-spawn") {
@@ -53,13 +41,17 @@ export function parseReviewArgs(raw: string): ParsedReviewArgs {
 			result.lite = true;
 			continue;
 		}
+		if (t === "--perf" || t === "--performance") {
+			result.perf = true;
+			continue;
+		}
 		if (t === "--gate-model") {
 			const id = tokens[++i];
 			if (id) result.gateModel = id;
 			continue;
 		}
 		if (t.startsWith("-")) {
-			continue; // ignore other legacy / unknown flags
+			continue;
 		}
 		inputParts.push(t);
 	}
@@ -72,7 +64,6 @@ export function parseReviewArgs(raw: string): ParsedReviewArgs {
 	return result;
 }
 
-/** Split on whitespace preserving quoted segments. */
 function tokenize(raw: string): string[] {
 	const out: string[] = [];
 	let cur = "";

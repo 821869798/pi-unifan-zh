@@ -47,6 +47,8 @@ export interface PrepareRunInput {
 	input?: string;
 	/** Support `--lite` single-agent mode. */
 	lite?: boolean;
+	/** Support `--perf` performance & benchmark mode. */
+	perf?: boolean;
 	/** Optional per-run gate model override. */
 	gateModel?: string;
 	/** Set false for dry-runs — pruning is a side effect a dry run must not have. */
@@ -143,9 +145,12 @@ export async function prepareRun(input: PrepareRunInput): Promise<PreparedRun | 
 		rulePaths,
 		historyAvailable: workspaceResult.historyAvailable,
 	};
-	const reviewers = input.lite
-		? [{ id: "lite-review", label: "Lite Review", enabled: true, model: "inherit" }]
-		: reviewersForRouting(target, config, profile);
+	const isSingle = input.lite || input.perf;
+	const reviewers = input.perf
+		? [{ id: "perf-review", label: "Performance Review", enabled: true, model: "inherit" }]
+		: input.lite
+			? [{ id: "lite-review", label: "Lite Review", enabled: true, model: "inherit" }]
+			: reviewersForRouting(target, config, profile);
 	const skippedReasons = adaptiveSkips(profile);
 	// The report tool uses this to reject findings that did not come from this
 	// run's roster (stale-artifact contamination guard).
@@ -165,11 +170,12 @@ export async function prepareRun(input: PrepareRunInput): Promise<PreparedRun | 
 		target,
 		reviewers,
 		gateModel,
-		gateThinking: input.lite ? undefined : config.gate.thinking,
+		gateThinking: isSingle ? undefined : config.gate.thinking,
 		gateEnabled: config.gate.enabled,
 		threshold: config.gate.threshold,
 		verdictPolicy: config.gate.verdictPolicy,
 		lite: Boolean(input.lite),
+		perf: Boolean(input.perf),
 		cwd,
 		workspacePath,
 		manifestPath,
@@ -179,7 +185,7 @@ export async function prepareRun(input: PrepareRunInput): Promise<PreparedRun | 
 	});
 	// Remember which lanes adaptive routing dropped so the report can surface
 	// them as coverage rather than letting users wonder where a reviewer went.
-	if (!input.lite && config.routing.mode === "adaptive" && skippedReasons.length > 0) {
+	if (!isSingle && config.routing.mode === "adaptive" && skippedReasons.length > 0) {
 		const skippedByRouting: Array<{ id: string; reason: string }> = [];
 		for (const [id, reason] of skippedReasons) {
 			if (!reviewers.some((r) => r.id === id)) skippedByRouting.push({ id, reason });

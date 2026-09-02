@@ -25,18 +25,21 @@ export default function (pi: ExtensionAPI) {
 	registerReviewReportTool(pi);
 	registerPiReviewRenderer(pi);
 	pi.registerCommand("review", {
-		description: "启动 AI 并发代码审查 (支持多专家子代理 + 门禁总裁判系统)。--lite = 极速单专家审查。",
+		description: "启动 AI 并发代码审查 (支持多专家子代理 + 门禁总裁判系统)。--lite = 极速单专家审查，--perf = 性能与基准测试审查。",
 		getArgumentCompletions: (prefix: string) => {
+			const options = [
+				{ value: "--lite", label: "--lite", description: "极速单专家审查 (无门禁，低延迟省 Token)" },
+				{ value: "--perf", label: "--perf", description: "专项性能与基准测试审查 (GC/内存分配/CPU/Benchmark)" },
+				{ value: "--gate-model", label: "--gate-model", description: "指定当前审查的门禁裁判模型" },
+			];
 			const trimmed = prefix.trimStart();
+			if (!trimmed) return options;
 			const tokens = trimmed.split(/\s+/).filter(Boolean);
 			const last = tokens[tokens.length - 1] ?? "";
 			if (last.startsWith("--")) {
-				return [
-					{ value: "--lite", label: "--lite", description: "极速单专家审查 (无门禁，低延迟省 Token)" },
-					{ value: "--gate-model", label: "--gate-model", description: "指定当前审查的门禁裁判模型" },
-				].filter((o) => o.value.startsWith(last));
+				return options.filter((o) => o.value.startsWith(last));
 			}
-			return null;
+			return options;
 		},
 		handler: async (args, ctx) => {
 			const notify = (msg: string, level: "info" | "warning" | "error" = "info") => {
@@ -61,7 +64,13 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
-				const prepared = await prepareRun({ cwd: ctx.cwd, input: parsed.input, lite: parsed.lite, gateModel: parsed.gateModel });
+				const prepared = await prepareRun({
+					cwd: ctx.cwd,
+					input: parsed.input,
+					lite: parsed.lite,
+					perf: parsed.perf,
+					gateModel: parsed.gateModel,
+				});
 				if (!prepared) {
 					notify("没有检测到需要审查的内容 (未找到修改、PR 或非 Git 仓库)。", "info");
 					return;
