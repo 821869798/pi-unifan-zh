@@ -1,7 +1,7 @@
 {
   "name": "@unifan/pi-review-zh",
-  "version": "1.0.11",
-  "description": "Pi AI 并发代码审查扩展（多专家子代理并发 + 门禁裁判系统，中文增强版）",
+  "version": "1.0.12",
+  "description": "Pi 交互式 AI 代码审查扩展（Codex & pi-agent-extensions 架构，全中文，支持分支隔离、未提交改动、分支对比、PR 审查）",
   "type": "module",
   "license": "MIT",
   "author": "821869798",

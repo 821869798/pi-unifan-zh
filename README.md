@@ -85,20 +85,26 @@ pi install npm:@unifan/pi-commit-zh
 
 ---
 
-### 2. 🔍 `review` (AI Code Review Suite)
-- **Review Modes**:
-  - **`/review-lite`** ⭐ **(Recommended for daily development)**: Fast single-agent review pass in 2~3s, highly token-efficient.
-  - **`/review-perf`** 🔥 **(Performance & Benchmark Reviewer)**: Deep-dive inspection for GC allocation, hot loops, algorithmic complexity, and benchmark probes.
-  - **`/review`** 🔍 **(Daily 3-Expert Review)**: Bugbot + Security + Compliance + Gatekeeper with low latency.
-  - **`/review-full`** 🏥 **(Full 6-Expert Consultation)**: Full multi-agent parallel audit (ideal for major releases and PR merges).
-- **Utility Commands**:
-  - **`/review-show`**: Re-render the most recent review report.
-  - **`/review-agents`**: View reviewer agents and models status.
-  - **`/review-config`**: Edit review configuration.
-- **Key Features**:
-  - **Model Inheritance**: Gate automatically inherits the active session model (`inherit`), avoiding missing model errors.
-  - **Fault Tolerance & Auto-Retry**: Automatically retries on transient stream drops and preserves all completed reviewer findings even if the gate fails.
-  - **100% Fluent Chinese Output**.
+### 2. 🔍 `review` (Interactive AI Code Review Suite)
+- **Architecture**:
+  - Re-architected following the battle-tested **Codex & pi-agent-extensions** design (by Armin Ronacher @mitsuhiko).
+  - **Native Session Tree Branch Isolation**: Completely eliminates multi-subagent WebSocket dropouts, proxy streaming errors, and timeouts. Rock-solid stability on any model (GPT, Claude, DeepSeek, GLM, etc.).
+- **Commands**:
+  - **`/review`** 🔍: Launches interactive Chinese TUI menu with 6 review modes:
+    - ① `Review uncommitted changes` (staged + unstaged working tree, smart default)
+    - ② `Review against base branch` (auto merge-base calculation against main/master/dev)
+    - ③ `Review specific commit` (search and pick from recent commits)
+    - ④ `Review GitHub Pull Request` (auto local checkout via gh CLI)
+    - ⑤ `Review folder/files snapshot` (full snapshot audit, non-diff)
+    - ⑥ `Custom review focus` (concurrency, GC, security, API contracts)
+  - **`/review-lite`** ⭐: Directly audits current uncommitted changes without menu prompts.
+  - **`/end-review`** 🏁:
+    - Automatically structures review findings into P0~P3 action items.
+    - Seamlessly jumps back to the original working branch and pre-fills the editor with fix instructions!
+- **Standards & Guidelines**:
+  - **P0~P3 Strict Severity Tags**: Blocker, Urgent, Normal, Low.
+  - **Zero Speculation & Grounded in Diff**: Every finding is backed by source evidence.
+  - **Custom Guidelines**: Automatically respects repo-level `REVIEW_GUIDELINES.md`, `AGENTS.md`, or `CLAUDE.md`.
 
 ---
 
