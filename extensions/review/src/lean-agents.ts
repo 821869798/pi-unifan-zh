@@ -25,6 +25,8 @@ export interface LeanBudgetSpec {
 	defaultToolBudget: ToolBudgetSpec;
 	/** Stricter per-child tool budget for history-context (injected per runs.all item). */
 	historyToolBudget: ToolBudgetSpec;
+	/** Ultra-lean tool budget for lite-review. */
+	liteToolBudget: ToolBudgetSpec;
 	/** Gate child budgets (injected onto the runs.run("gate", ...) item). */
 	gateTurnBudget: { maxTurns: number; graceTurns: number };
 	gateToolBudget: ToolBudgetSpec;
@@ -33,15 +35,17 @@ export interface LeanBudgetSpec {
 }
 
 export const LEAN_BUDGETS: LeanBudgetSpec = {
-	turnBudget: { maxTurns: 26, graceTurns: 2 },
-	defaultToolBudget: { soft: 20, hard: 32 },
-	historyToolBudget: { soft: 14, hard: 24 },
-	gateTurnBudget: { maxTurns: 16, graceTurns: 2 },
-	gateToolBudget: { soft: 14, hard: 20 },
-	timeoutMs: 1_000_000,
+	turnBudget: { maxTurns: 8, graceTurns: 1 },
+	defaultToolBudget: { soft: 6, hard: 10 },
+	historyToolBudget: { soft: 4, hard: 6 },
+	liteToolBudget: { soft: 3, hard: 5 },
+	gateTurnBudget: { maxTurns: 6, graceTurns: 1 },
+	gateToolBudget: { soft: 6, hard: 10 },
+	timeoutMs: 600_000,
 };
 
 export function toolBudgetForReviewer(id: string): ToolBudgetSpec {
+	if (id === "lite-review") return LEAN_BUDGETS.liteToolBudget;
 	if (id === "history-context") return LEAN_BUDGETS.historyToolBudget;
 	return LEAN_BUDGETS.defaultToolBudget;
 }

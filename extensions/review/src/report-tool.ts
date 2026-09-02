@@ -107,15 +107,32 @@ function emptyCoverage(): ReviewerOutput["coverage"] {
 
 /** Build a deterministic verdict + report from a workflow return value. */
 export function runReportTool(input: ReportToolInput): ReportToolResult {
-	if (!input.workflowReturn || typeof input.workflowReturn !== "object") {
+	let rawWorkflowReturn = input.workflowReturn;
+	if (typeof rawWorkflowReturn === "string") {
+		try {
+			rawWorkflowReturn = JSON.parse(rawWorkflowReturn);
+		} catch {
+			return { ok: false, error: "workflowReturn must be an object or valid JSON string" };
+		}
+	}
+	if (!rawWorkflowReturn || typeof rawWorkflowReturn !== "object") {
 		return { ok: false, error: "workflowReturn must be an object" };
 	}
-	const ret = input.workflowReturn as {
+	const ret = rawWorkflowReturn as {
 		reviewers?: unknown;
 		gate?: unknown;
 		reviewersShaped?: unknown;
+		error?: unknown;
 	};
-	if (!Array.isArray(ret.reviewers)) {
+	let reviewersList = Array.isArray(ret.reviewers) ? (ret.reviewers as unknown[]) : [];
+	if (reviewersList.length === 0 && ret.error) {
+		reviewersList = [{
+			key: "execution-error",
+			ok: false,
+			error: String(ret.error),
+			output: undefined,
+		}];
+	} else if (!Array.isArray(ret.reviewers)) {
 		return { ok: false, error: "workflowReturn.reviewers must be an array" };
 	}
 
@@ -124,7 +141,7 @@ export function runReportTool(input: ReportToolInput): ReportToolResult {
 	const threshold = input.threshold ?? 8;
 	const policy = input.verdictPolicy ?? "strict";
 
-	const reviewersRaw = ret.reviewers as Array<{
+	const reviewersRaw = reviewersList as Array<{
 		key: string;
 		ok: boolean;
 		error?: string;

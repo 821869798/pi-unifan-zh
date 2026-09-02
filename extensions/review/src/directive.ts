@@ -243,8 +243,8 @@ export function buildWorkflowScript(input: {
 	lines.push("try {");
 	lines.push("  reviewers = await runs.all([");
 	for (const r of reviewers) {
-		const tb = LEAN_BUDGETS.defaultToolBudget;
-		const tbForId = r.id === "history-context" ? LEAN_BUDGETS.historyToolBudget : tb;
+		const tbForId = toolBudgetForReviewer(r.id);
+		const turnsForId = r.id === "lite-review" ? { maxTurns: 4, graceTurns: 1 } : budgets.turnBudget;
 		const taskParts = [
 			READ_ONLY_PREFIX,
 			`读取 ${JSON.stringify(diffPath)} 作为改动内容——diff 是权威的修改记录，工作区文件仅作上下文参考。若工作区文件与 diff 存在差异，以 diff 为准并在 coverage.limitations 中说明。所有问题描述必须使用中文。`,
@@ -254,6 +254,11 @@ export function buildWorkflowScript(input: {
 			"严禁读取 plan.md, progress.md, 以及 .pi-subagents/ 目录下的任何文件或 node_modules。",
 			"优先使用 Read/Grep。若使用 bash，仅限简单的单条命令（禁止 &&/||/; 等复合命令）。",
 		];
+		if (r.id === "lite-review") {
+			taskParts.push(
+				"极速模式要求：严格在 2~3 轮内完成！读取 diff 后若无需核验直接出报告；若需核验最多只读 1 个文件或单次 grep，下一轮立即输出最终报告并停止！",
+			);
+		}
 		if (r.id === "claude-md-compliance") {
 			taskParts.push(
 				"若 change-profile.rulePaths 为空，返回跳过状态：SKIPPED: no-rules，不提出虚构的违规。",
@@ -301,7 +306,7 @@ export function buildWorkflowScript(input: {
 		}
 		lines.push(`      toolBudget: { soft: ${tbForId.soft}, hard: ${tbForId.hard} },`);
 		lines.push(
-			`      turnBudget: { maxTurns: ${budgets.turnBudget.maxTurns}, graceTurns: ${budgets.turnBudget.graceTurns} },${modelClause}`,
+			`      turnBudget: { maxTurns: ${turnsForId.maxTurns}, graceTurns: ${turnsForId.graceTurns} },${modelClause}`,
 		);
 		lines.push("    },");
 	}
@@ -311,14 +316,19 @@ export function buildWorkflowScript(input: {
 	lines.push("  await new Promise((resolve) => setTimeout(resolve, 800));");
 	lines.push("  reviewers = await runs.all([");
 	for (const r of reviewers) {
-		const tb = LEAN_BUDGETS.defaultToolBudget;
-		const tbForId = r.id === "history-context" ? LEAN_BUDGETS.historyToolBudget : tb;
+		const tbForId = toolBudgetForReviewer(r.id);
+		const turnsForId = r.id === "lite-review" ? { maxTurns: 4, graceTurns: 1 } : budgets.turnBudget;
 		const taskParts = [
 			READ_ONLY_PREFIX,
 			`读取 ${JSON.stringify(diffPath)} 作为改动内容——diff 是权威的修改记录，工作区文件仅作上下文参考。所有问题描述必须使用中文。`,
 			`你的当前工作区为目标工作区 (${JSON.stringify(workspacePath)})。在此目录下执行必要的 read/grep。`,
 			"在额度内完成分析；最终回复必须输出格式规范的 Markdown 审查报告（包含中文 Summary / Findings / Coverage 章节）并停止。所有问题描述、证据引用和总结必须使用纯正中文。",
 		];
+		if (r.id === "lite-review") {
+			taskParts.push(
+				"极速模式要求：严格在 2~3 轮内完成！读取 diff 后若无需核验直接出报告；若需核验最多只读 1 个文件或单次 grep，下一轮立即输出最终报告并停止！",
+			);
+		}
 		const modelClause =
 			r.model && r.model !== "inherit"
 				? `\n      model: ${JSON.stringify(r.model)},`
@@ -337,7 +347,7 @@ export function buildWorkflowScript(input: {
 		}
 		lines.push(`      toolBudget: { soft: ${tbForId.soft}, hard: ${tbForId.hard} },`);
 		lines.push(
-			`      turnBudget: { maxTurns: ${budgets.turnBudget.maxTurns}, graceTurns: ${budgets.turnBudget.graceTurns} },${modelClause}`,
+			`      turnBudget: { maxTurns: ${turnsForId.maxTurns}, graceTurns: ${turnsForId.graceTurns} },${modelClause}`,
 		);
 		lines.push("    },");
 	}
