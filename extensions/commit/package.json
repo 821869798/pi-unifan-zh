@@ -1,6 +1,6 @@
 {
   "name": "@unifan/pi-commit-zh",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Pi 智能 Git 提交助手（规范化 Conventional Commits 纯中文版，支持一键提审与推流）",
   "type": "module",
   "main": "index.ts",
