@@ -31,7 +31,6 @@ export const DEFAULT_CONFIG: PiReviewConfig = {
 	schemaVersion: 1,
 	gate: {
 		model: DEFAULT_GATE_MODEL,
-		thinking: "low",
 		enabled: true,
 		threshold: 8,
 		verdictPolicy: "strict",

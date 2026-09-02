@@ -380,28 +380,29 @@ export function buildWorkflowScript(input: {
 		if (gateModel && gateModel !== "inherit") {
 			lines.push(`    model: ${JSON.stringify(gateModelWithThinking)},`);
 		}
-		if (gateThinking && gateThinking !== "off" && gateThinking !== "false") {
+		if (gateThinking && gateThinking !== "off" && gateThinking !== "false" && gateThinking !== "undefined") {
 			lines.push(`    thinking: ${JSON.stringify(gateThinking)},`);
 		}
 		lines.push(`    toolBudget: { soft: ${budgets.gateToolBudget.soft}, hard: ${budgets.gateToolBudget.hard} },`);
 		lines.push(`    turnBudget: { maxTurns: ${budgets.gateTurnBudget.maxTurns}, graceTurns: ${budgets.gateTurnBudget.graceTurns} },`);
 		lines.push("  });");
 		lines.push("} catch (gateLaunchError) {");
-		lines.push("  gateRun = await runs.run('gate-fallback', {");
-		lines.push(`    agent: ${JSON.stringify(LEAN_GATE_AGENT)},`);
-		lines.push("    task: gateTask,");
-		lines.push(`    cwd: ${JSON.stringify(workspacePath)},`);
-		if (gateThinking && gateThinking !== "off" && gateThinking !== "false") {
-			lines.push(`    thinking: ${JSON.stringify(gateThinking)},`);
-		}
-		lines.push(`    toolBudget: { soft: ${budgets.gateToolBudget.soft}, hard: ${budgets.gateToolBudget.hard} },`);
-		lines.push(`    turnBudget: { maxTurns: ${budgets.gateTurnBudget.maxTurns}, graceTurns: ${budgets.gateTurnBudget.graceTurns} },`);
-		lines.push("  });");
+		lines.push("  try {");
+		lines.push("    gateRun = await runs.run('gate-fallback', {");
+		lines.push(`      agent: ${JSON.stringify(LEAN_GATE_AGENT)},`);
+		lines.push("      task: gateTask,");
+		lines.push(`      cwd: ${JSON.stringify(workspacePath)},`);
+		lines.push(`      toolBudget: { soft: ${budgets.gateToolBudget.soft}, hard: ${budgets.gateToolBudget.hard} },`);
+		lines.push(`      turnBudget: { maxTurns: ${budgets.gateTurnBudget.maxTurns}, graceTurns: ${budgets.gateTurnBudget.graceTurns} },`);
+		lines.push("    });");
+		lines.push("  } catch (fallbackError) {");
+		lines.push("    gateRun = { ok: false, error: String(fallbackError.message || fallbackError), output: '' };");
+		lines.push("  }");
 		lines.push("}");
 		lines.push("const gate = {");
-		lines.push("  ok: gateRun.ok,");
-		lines.push("  error: gateRun.error,");
-		lines.push("  output: gateRun.output,");
+		lines.push("  ok: gateRun ? gateRun.ok : false,");
+		lines.push("  error: gateRun ? gateRun.error : 'gate failed',");
+		lines.push("  output: gateRun ? gateRun.output : '',");
 		lines.push("};");
 		lines.push("");
 	}
