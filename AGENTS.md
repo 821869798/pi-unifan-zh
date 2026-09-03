@@ -18,8 +18,8 @@ pi-unifan-zh/
 │   │   ├── index.ts               # 双栏实时预览 TUI 交互逻辑
 │   │   ├── sessions.ts            # 会话解析、时间格式化与搜索过滤
 │   │   └── package.json
-│   ├── review/                    # ② 代码审查全能扩展 (/review, /review-lite, /review-perf, /review-full)
-│   │   ├── index.ts               # 斜杠命令注册与自动补全
+│   ├── review/                    # ② 代码审查全能扩展 (/review, /review-lite, /review-full, /review-reset, /review-sync)
+│   │   ├── index.ts               # 单文件轻量会话分支隔离与审查编排引擎
 │   │   ├── agents/                # 独立子代理提示词 (UTF-8 无 BOM)
 │   │   │   ├── bugbot.md          # 逻辑缺陷专家
 │   │   │   ├── security-review.md # 安全隐患专家
@@ -29,11 +29,6 @@ pi-unifan-zh/
 │   │   │   ├── claude-md-compliance.md # 规范合规专家
 │   │   │   ├── history-context.md # 历史上下文专家
 │   │   │   └── code-comments.md   # 注释检查专家
-│   │   ├── src/
-│   │   │   ├── directive.ts       # 工作流脚本生成 (带自动重试与容错)
-│   │   │   ├── review-run.ts      # 运行编排与路由分发
-│   │   │   ├── report.ts          # 报告拼装与 Markdown 渲染
-│   │   │   └── config.ts          # 默认配置 (门禁模型继承 inherit)
 │   │   └── package.json           # 独立子包: @unifan/pi-review-zh
 │   └── commit/                    # ③ 智能 Git 提交助手 (/commit, /commit-push)
 │       ├── index.ts               # 一键提交与推流命令
