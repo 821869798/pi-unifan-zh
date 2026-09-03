@@ -8,6 +8,9 @@
     "type": "git",
     "url": "https://github.com/821869798/pi-unifan-zh.git"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "pi": {
     "extensions": [
       "./extensions/sessions/index.ts",
@@ -32,5 +35,12 @@
     "tui"
   ],
   "author": "unifan",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@earendil-works/pi-tui": "^0.84.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
 }

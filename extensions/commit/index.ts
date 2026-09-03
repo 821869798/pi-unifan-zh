@@ -60,30 +60,34 @@ async function generateCommitMessage(
 			const provider = ctx.modelRegistry.getProvider(ctx.model.provider);
 			if (provider) {
 				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-				const response = await provider
-					.streamSimple(
-						ctx.model,
-						{
-							systemPrompt: COMMIT_SYSTEM_PROMPT,
-							messages: [
-								{
-									role: "user",
-									content: [{ type: "text", text: userPrompt }],
-									timestamp: Date.now(),
-								},
-							],
-						},
-						{ apiKey: auth?.apiKey, headers: auth?.headers, maxTokens: 800 },
-					)
-					.result();
+				if (!auth.ok) {
+					console.error("pi-commit getApiKeyAndHeaders error:", auth.error);
+				} else {
+					const response = await provider
+						.streamSimple(
+							ctx.model,
+							{
+								systemPrompt: COMMIT_SYSTEM_PROMPT,
+								messages: [
+									{
+										role: "user",
+										content: [{ type: "text", text: userPrompt }],
+										timestamp: Date.now(),
+									},
+								],
+							},
+							{ apiKey: auth.apiKey, headers: auth.headers, maxTokens: 800 },
+						)
+						.result();
 
-				const text = response.content
-					?.map((c) => (c.type === "text" ? c.text : ""))
-					.join("")
-					.trim();
+					const text = response.content
+						?.map((c) => (c.type === "text" ? c.text : ""))
+						.join("")
+						.trim();
 
-				if (text) {
-					return text.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
+					if (text) {
+						return text.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
+					}
 				}
 			}
 		} catch (err) {

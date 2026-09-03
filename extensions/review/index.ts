@@ -20,7 +20,7 @@
  * - /review-end 自动将审查发现 (P0~P3) 结构化汇总并一键跳回原会话位置，自动填入修复指令
  */
 
-import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext, ExecResult } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, BorderedLoader } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import path from "node:path";
@@ -88,14 +88,14 @@ const ALL_EXPERTS: ReviewExpert[] = [
 	{
 		id: "pi-review.bugbot",
 		label: "Bug 猎手 (Bugbot)",
-		desc: "逻辑缺陷、空指针、越界越权、死锁与运行时崩溃",
-		task: "深入排查本次代码改动中的业务逻辑缺陷、空指针、越界、并发竞态与未捕获的运行时异常",
+		desc: "逻辑缺陷、空指针、边界溢出、死锁与运行时崩溃",
+		task: "深入排查本次代码改动中的业务逻辑缺陷、空指针、边界异常、并发竞态与未捕获的运行时异常",
 	},
 	{
 		id: "pi-review.security-review",
 		label: "安全专家 (Security)",
-		desc: "未受信任外部输入、SQL注入、路径穿越与越权漏洞",
-		task: "深入排查本次代码改动中的安全隐患、外部输入未严格校验、未参数化语句与注入风险",
+		desc: "输入参数合法性校验、跨目录边界防护与权限隔离",
+		task: "深入排查本次代码改动中的防御性编码缺陷、外部输入未做类型/范围校验、边界防护不足等健壮性隐患",
 	},
 	{
 		id: "pi-review.perf-review",
@@ -123,14 +123,24 @@ const ALL_EXPERTS: ReviewExpert[] = [
 	},
 ];
 
-function buildSubagentOrchestrationPrompt(concurrency: number, gateEnabled: boolean): string {
+function buildSubagentOrchestrationPrompt(
+	concurrency: number,
+	gateEnabled: boolean,
+	targetInstruction: string,
+): string {
 	const count = Math.min(6, Math.max(2, concurrency));
 	const selected = ALL_EXPERTS.slice(0, count);
 
 	const listText = selected.map((exp, idx) => `${idx + 1}. **${exp.label}** (\`${exp.id}\`)：${exp.desc}`).join("\n");
 	const callsExample = selected
-		.map((exp) => `  - \`subagent({ agent: "${exp.id}", task: "${exp.task}" })\``)
+		.map((exp) => {
+			const fullTask = `${targetInstruction}\n\n【专项排查分工】：${exp.task}`;
+			return `subagent({ agent: ${JSON.stringify(exp.id)}, task: ${JSON.stringify(fullTask)} });`;
+		})
 		.join("\n");
+
+	const maxBackticks = (callsExample.match(/`+/g) || []).reduce((max, m) => Math.max(max, m.length), 2);
+	const fence = "`".repeat(maxBackticks + 1);
 
 	return `## 🚀 执行方式：多 Subagent 并发专家审查 (当前配置并发数: ${count} 个专家)
 
@@ -140,9 +150,11 @@ ${listText}
 
 ### 协作审查执行规范：
 1. **并发调用子代理**：请在当前回合使用 \`subagent\` 工具**同时并行唤起**上述 ${count} 个专家子代理（单回合发起 ${count} 个并发 tool_call，严禁串行逐个调用）：
+${fence}js
 ${callsExample}
+${fence}
 2. **主审裁判长汇总整理**：当所有专家子代理执行完毕返回发现后，请你作为主审裁判长${gateEnabled ? "（门禁裁决）" : ""}：
-   - 全面综合各专家的审查意见，对相同问题进行去重，剔除误报和低置信度内容。
+   - 全面综合各专家的审查意见，对相同问题进行去重，剔除误报和低置信度内容（注意：项目中合法的内部 GM / Debug 调试工具在确保与正式生产环境隔离的前提下免检）。
    - 严格按照《核心代码审查准则》的 **[P0~P3]** 等级标准排布审查清单。
    - 给出最终综合裁决与一句话中文总评。
 3. **语言强制要求**：所有任务入参、思考分析过程、综合汇报与最终报告必须 100% 为纯正中文，严禁出现任何英文段落或未翻译小标题！`;
@@ -201,13 +213,13 @@ type ReviewTarget =
 
 // 针对不同审查目标的中文提示词
 const LITE_REVIEW_PROMPT =
-	"【极速体检模式】请首先运行 `git diff` 获取代码改动，并针对改动涉及的核心函数按需使用 `read` 查阅周边上下文（如所在完整方法实现与生命周期），快速排查高危逻辑崩溃与安全漏洞。结合上下文精准核验后直接输出审查发现。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
+	"【极速体检模式】请首先运行 `git diff` 获取代码改动，并针对改动涉及的核心函数按需使用 `read` 查阅周边上下文（如所在完整方法实现与生命周期），快速排查高危逻辑异常、运行时崩溃与防御性缺陷。注意：项目中内部 GM/Debug 调试工具在确认与生产环境隔离的前提下免检，切勿误判；但若正式生产包可直接触达仍属漏洞。结合上下文精准核验后直接输出审查发现。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
 
 const FULL_REVIEW_PROMPT =
-	"【全量深度审查模式】请对当前代码改动展开深度的上下文关联审查：首先运行 `git diff` 全量查阅改动，必须使用 `read` / `grep` 深入查阅改动方法所在的完整类定义、调用方契约、状态机与生命周期等关键上下文，深入排查业务逻辑隐患、边界异常、并发安全、性能GC开销与架构契约，结合完整代码脉络直接输出详尽审查清单。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
+	"【全量深度审查模式】请对当前代码改动展开深度的上下文关联审查：首先运行 `git diff` 全量查阅改动，必须使用 `read` / `grep` 深入查阅改动方法所在的完整类定义、调用方契约、状态机与生命周期等关键上下文，深入排查业务逻辑隐患、边界异常、并发安全、性能GC开销与架构契约。注意：项目中内部 GM 调试面板与测试辅助逻辑在已隔离于正式生产包的前提下免检，切勿误判。结合完整代码脉络直接输出详尽审查清单。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
 
 const UNCOMMITTED_PROMPT =
-	"请审查当前代码的所有改动（包含暂存区、未暂存区以及新增文件）。先运行 `git diff` 与 `git status` 获取改动，再针对关键改动按需使用 `read` / `grep` 查阅周边上下文代码与调用链路，结合完整上下文直接输出审查发现。严禁输出任何步骤清单或待办列表。所有输出必须使用纯正中文。";
+	"请审查当前代码的所有改动（包含暂存区、未暂存区以及新增文件）。先运行 `git diff` 与 `git status` 获取改动，再针对关键改动按需使用 `read` / `grep` 查阅周边上下文代码与调用链路，排查真实业务缺陷与边界异常（注意：项目中内部 GM/Debug 调试指令在与生产环境隔离的前提下属于正常研发代码，勿误判），结合完整上下文直接输出审查发现。严禁输出任何步骤清单或待办列表。所有输出必须使用纯正中文。";
 
 const BASE_BRANCH_PROMPT_WITH_MERGE_BASE =
 	"请审查当前分支相对于基准分支 '{baseBranch}' 的改动（合并基准 commit: {mergeBaseSha}）。运行 `git diff {mergeBaseSha}` 查看改动，并按需使用 `read` / `grep` 结合周边上下文深入分析，直接输出审查发现。严禁输出任何步骤清单。所有输出必须使用纯正中文。";
@@ -241,16 +253,17 @@ const REVIEW_RUBRIC = `> 🚨【最高执行原则】：
 你是一名资深技术专家，正在审查提交的代码改动。请结合完整代码上下文，直击本质，拦截真实缺陷：
 
 ## 重点排查范围
-1. **代码正确性与边界**：结合函数整体逻辑与调用方，排查业务漏洞、空指针/未定义引用、边界越界、生命周期异常、未捕获的运行时崩溃。
+1. **代码正确性与边界**：结合函数整体逻辑与调用方，排查业务逻辑缺陷、空指针/未定义引用、边界越界、生命周期异常、未捕获的运行时崩溃。
 2. **并发与状态安全**：结合上下文状态机与生命周期，排查竞态条件、死锁隐患、异步缺少等待、脏状态残留。
 3. **性能与内存开销**：高频主循环内的大量堆内存分配 (GC 压力)、不必要的深拷贝、高复杂度算法、资源句柄泄露。
-4. **防御与输入校验**：外部未受信任输入未做严格参数化或校验（SQL注入、路径穿越、越权等）。
+4. **输入验证与安全边界**：外部未受信任输入是否缺乏合法性检查、参数未做参数化转义、类型断言与长度/范围限制，是否存在跨目录访问或越权风险。
 5. **只关注本次改动**：严禁将改动前既有的历史代码当作本次改动的缺陷。
 
 ## 严格过滤误报
 - ❌ 严禁提出吹毛求疵、纯属个人审美的风格建议。
 - ❌ 严禁提出 Linter / 类型检查器会自动捕获的浅层格式建议。
 - ❌ 严禁脱离上下文进行无端猜测，每条问题必须有明确的代码与上下文事实证据。
+- 💡 **开发与测试工具免检准则**：在游戏、客户端与业务系统中，\`GM\`（Game Master/内部调试面板）、\`Debug\` 指令、测试出战模拟等属于受信任的研发辅助逻辑，**在通过编译宏（如 \`#if UNITY_EDITOR || DEVELOPMENT_BUILD\`）或环境判断已隔离于正式生产环境的前提下，严禁将其误判为安全漏洞或缺陷**；但若此类入口在正式生产发布包中无防护可被客户端或外部请求触达，仍属 P0 安全隐患，必须报告。
 
 ## 缺陷等级标记 [P0~P3]
 - **[P0 - 致命阻塞]** 崩溃、死锁、数据损坏、关键功能不可用，必须阻断合并
@@ -271,31 +284,30 @@ const REVIEW_RUBRIC = `> 🚨【最高执行原则】：
 - **总结说明**：一句话中文总评。`;
 
 /**
- * 尝试加载项目本地的专属审查准则文件 (REVIEW_GUIDELINES.md 或 AGENTS.md / CLAUDE.md)
+ * 尝试加载项目本地的专属审查准则文件 (仅加载专用的 REVIEW_GUIDELINES.md)
  */
 async function loadProjectReviewGuidelines(cwd: string): Promise<string | null> {
 	let currentDir = path.resolve(cwd);
 
 	while (true) {
 		const piDir = path.join(currentDir, ".pi");
-		const candidates = [
-			path.join(currentDir, "REVIEW_GUIDELINES.md"),
-			path.join(currentDir, "AGENTS.md"),
-			path.join(currentDir, "CLAUDE.md"),
-		];
+		const guidelinePath = path.join(currentDir, "REVIEW_GUIDELINES.md");
 
 		const piStats = await fs.stat(piDir).catch(() => null);
 		if (piStats?.isDirectory()) {
-			for (const guidelinePath of candidates) {
-				const stat = await fs.stat(guidelinePath).catch(() => null);
-				if (stat?.isFile()) {
-					try {
-						const content = await fs.readFile(guidelinePath, "utf8");
-						const trimmed = content.trim();
-						if (trimmed) return trimmed.slice(0, 3000);
-					} catch {
-						/* ignore */
+			const stat = await fs.stat(guidelinePath).catch(() => null);
+			if (stat?.isFile()) {
+				try {
+					const content = await fs.readFile(guidelinePath, "utf8");
+					const trimmed = content.trim();
+					if (trimmed) {
+						if (trimmed.length <= 12000) return trimmed;
+						const lastNewline = trimmed.lastIndexOf("\n", 12000);
+						const cutoff = lastNewline > 2000 ? lastNewline : 12000;
+						return `${trimmed.slice(0, cutoff).trimEnd()}\n\n> 💡 *(注：项目专属审查规范篇幅较长，已安全截取前置 12000 字符)*`;
 					}
+				} catch {
+					/* ignore */
 				}
 			}
 			return null;
@@ -308,23 +320,93 @@ async function loadProjectReviewGuidelines(cwd: string): Promise<string | null> 
 }
 
 /**
- * 获取 HEAD 与指定分支的 merge base
+ * 判断当前审查会话是否被有效锁定
+ */
+function isSessionLocked(ctx: ExtensionContext): boolean {
+	if (!reviewOriginId) return false;
+	const state = getReviewState(ctx);
+
+	// 状态未激活说明会话已结束或锁已失效，自动释放
+	if (!state?.active) {
+		reviewOriginId = undefined;
+		setReviewWidget(ctx, false);
+		return false;
+	}
+	return true;
+}
+
+interface SafeExecOptions {
+	cwd?: string;
+	timeoutMs?: number;
+}
+
+/**
+ * 带超时与异常保护的安全外部命令执行包装 (原生类型安全，支持 AbortController 信号取消与 cwd)
+ */
+async function safeExec(
+	pi: ExtensionAPI,
+	cmd: string,
+	args: string[],
+	options: SafeExecOptions | number = 25000,
+): Promise<ExecResult> {
+	const opts = typeof options === "number" ? { timeoutMs: options } : options;
+	const timeoutMs = opts.timeoutMs ?? 25000;
+	const controller = new AbortController();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<ExecResult>((_, reject) => {
+		timer = setTimeout(() => {
+			controller.abort();
+			reject(new Error(`命令执行超时 (${timeoutMs}ms): ${cmd} ${args.join(" ")}`));
+		}, timeoutMs);
+	});
+	try {
+		// pi.exec 原生支持 ExecOptions: { signal?: AbortSignal, timeout?: number, cwd?: string }
+		// 超时后 controller.abort() 会由 SDK 底层 execCommand 原生杀死子进程
+		const execPromise = pi.exec(cmd, args, {
+			signal: controller.signal,
+			timeout: timeoutMs,
+			cwd: opts.cwd,
+		});
+		return await Promise.race([execPromise, timeoutPromise]);
+	} catch (err) {
+		return {
+			stdout: "",
+			stderr: err instanceof Error ? err.message : String(err),
+			code: -1,
+			killed: true,
+		};
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+/**
+ * 获取 HEAD 与指定分支的 merge base (支持本地分支、跟踪分支及远程分支)
  */
 async function getMergeBase(pi: ExtensionAPI, branch: string): Promise<string | null> {
 	try {
-		const { stdout: upstream, code: upstreamCode } = await pi.exec("git", [
+		// 1. 尝试跟踪分支的 upstream
+		const { stdout: upstream, code: upstreamCode } = await safeExec(pi, "git", [
 			"rev-parse",
 			"--abbrev-ref",
 			`${branch}@{upstream}`,
-		]);
+		], 8000);
 
 		if (upstreamCode === 0 && upstream.trim()) {
-			const { stdout: mergeBase, code } = await pi.exec("git", ["merge-base", "HEAD", upstream.trim()]);
+			const { stdout: mergeBase, code } = await safeExec(pi, "git", ["merge-base", "HEAD", upstream.trim()], 8000);
 			if (code === 0 && mergeBase.trim()) return mergeBase.trim();
 		}
 
-		const { stdout: mergeBase, code } = await pi.exec("git", ["merge-base", "HEAD", branch]);
-		if (code === 0 && mergeBase.trim()) return mergeBase.trim();
+		// 2. 尝试本地分支或已显式包含远程前缀的分支 (如 upstream/main、origin/main)
+		const { stdout: directBase, code: directCode } = await safeExec(pi, "git", ["merge-base", "HEAD", branch], 8000);
+		if (directCode === 0 && directBase.trim()) return directBase.trim();
+
+		// 3. 若分支未显式带 origin/ 前缀且本地未找到，尝试 origin/ 前缀兜底（兼容未检出本地分支或浅克隆，例如 feature/login -> origin/feature/login）
+		if (!branch.startsWith("origin/")) {
+			const { stdout: remoteBase, code: remoteCode } = await safeExec(pi, "git", ["merge-base", "HEAD", `origin/${branch}`], 8000);
+			if (remoteCode === 0 && remoteBase.trim()) return remoteBase.trim();
+		}
+
 		return null;
 	} catch {
 		return null;
@@ -332,7 +414,7 @@ async function getMergeBase(pi: ExtensionAPI, branch: string): Promise<string | 
 }
 
 async function getLocalBranches(pi: ExtensionAPI): Promise<string[]> {
-	const { stdout, code } = await pi.exec("git", ["branch", "--format=%(refname:short)"]);
+	const { stdout, code } = await safeExec(pi, "git", ["branch", "--format=%(refname:short)"], 8000);
 	if (code !== 0) return [];
 	return stdout
 		.trim()
@@ -342,7 +424,7 @@ async function getLocalBranches(pi: ExtensionAPI): Promise<string[]> {
 }
 
 async function getRecentCommits(pi: ExtensionAPI, limit = 20): Promise<Array<{ sha: string; title: string }>> {
-	const { stdout, code } = await pi.exec("git", ["log", "--oneline", "-n", `${limit}`]);
+	const { stdout, code } = await safeExec(pi, "git", ["log", "--oneline", "-n", `${limit}`], 8000);
 	if (code !== 0) return [];
 
 	return stdout
@@ -360,12 +442,15 @@ async function getRecentCommits(pi: ExtensionAPI, limit = 20): Promise<Array<{ s
 }
 
 async function hasUncommittedChanges(pi: ExtensionAPI): Promise<boolean> {
-	const { stdout, code } = await pi.exec("git", ["status", "--porcelain"]);
+	const { stdout, code } = await safeExec(pi, "git", ["status", "--porcelain"], 8000);
+	// 若检测超时或异常 (code === -1)，避免报出“工作区干净”的假阴性，按有改动处理 (fail-open)
+	if (code === -1) return true;
 	return code === 0 && stdout.trim().length > 0;
 }
 
 async function hasPendingChanges(pi: ExtensionAPI): Promise<boolean> {
-	const { stdout, code } = await pi.exec("git", ["status", "--porcelain"]);
+	const { stdout, code } = await safeExec(pi, "git", ["status", "--porcelain"], 8000);
+	if (code === -1) return true; // 超时降级放行
 	if (code !== 0) return false;
 	const lines = stdout.trim().split("\n").filter((line) => line.trim());
 	const trackedChanges = lines.filter((line) => !line.startsWith("??"));
@@ -386,16 +471,16 @@ async function getPrInfo(
 	pi: ExtensionAPI,
 	prNumber: number,
 ): Promise<{ baseBranch: string; title: string; headBranch: string } | null> {
-	const { stdout, code } = await pi.exec("gh", [
-		"pr",
-		"view",
-		String(prNumber),
-		"--json",
-		"baseRefName,title,headRefName",
-	]);
-	if (code !== 0) return null;
-
 	try {
+		const { stdout, code } = await safeExec(pi, "gh", [
+			"pr",
+			"view",
+			String(prNumber),
+			"--json",
+			"baseRefName,title,headRefName",
+		], 15000);
+		if (code !== 0) return null;
+
 		const data = JSON.parse(stdout);
 		return {
 			baseBranch: data.baseRefName,
@@ -408,7 +493,7 @@ async function getPrInfo(
 }
 
 async function checkoutPr(pi: ExtensionAPI, prNumber: number): Promise<{ success: boolean; error?: string }> {
-	const { stdout, stderr, code } = await pi.exec("gh", ["pr", "checkout", String(prNumber)]);
+	const { stdout, stderr, code } = await safeExec(pi, "gh", ["pr", "checkout", String(prNumber)], 30000);
 	if (code !== 0) {
 		return { success: false, error: stderr || stdout || "检出 PR 分支失败" };
 	}
@@ -416,13 +501,13 @@ async function checkoutPr(pi: ExtensionAPI, prNumber: number): Promise<{ success
 }
 
 async function getCurrentBranch(pi: ExtensionAPI): Promise<string | null> {
-	const { stdout, code } = await pi.exec("git", ["branch", "--show-current"]);
+	const { stdout, code } = await safeExec(pi, "git", ["branch", "--show-current"], 8000);
 	if (code === 0 && stdout.trim()) return stdout.trim();
 	return null;
 }
 
 async function getDefaultBranch(pi: ExtensionAPI): Promise<string> {
-	const { stdout, code } = await pi.exec("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"]);
+	const { stdout, code } = await safeExec(pi, "git", ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"], 8000);
 	if (code === 0 && stdout.trim()) {
 		return stdout.trim().replace("origin/", "");
 	}
@@ -575,7 +660,12 @@ async function showConfigDialog(ctx: ExtensionContext): Promise<void> {
 			};
 		});
 
-		if (!choice || choice === "save") {
+		if (choice === null) {
+			ctx.ui.notify("已取消，未保存审查设置修改。", "info");
+			return;
+		}
+
+		if (choice === "save") {
 			await saveSettings(settings);
 			ctx.ui.notify(`已保存审查设置：${settings.mode === "single" ? "单模型直接审查" : `多Subagent模式 (${settings.concurrency} 并发)`}`, "info");
 			return;
@@ -767,7 +857,6 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				noMatch: (text) => theme.fg("warning", text),
 			});
 
-			selectList.searchable = true;
 			selectList.onSelect = (item) => done(item.value);
 			selectList.onCancel = () => done(null);
 
@@ -820,7 +909,6 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				noMatch: (text) => theme.fg("warning", text),
 			});
 
-			selectList.searchable = true;
 			selectList.onSelect = (item) => {
 				const commit = commits.find((c) => c.sha === item.value);
 				done(commit || null);
@@ -879,18 +967,11 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		return { type: "folder", paths };
 	}
 
-	async function showPrInput(ctx: ExtensionContext): Promise<ReviewTarget | null> {
+	async function handlePrCheckout(ctx: ExtensionContext, prRef: string): Promise<ReviewTarget | null> {
 		if (await hasPendingChanges(pi)) {
 			ctx.ui.notify("无法检出 PR：工作区存在未提交改动，请先提交或暂存 (git stash)。", "error");
 			return null;
 		}
-
-		const prRef = await ctx.ui.editor(
-			"请输入 PR 编号或 GitHub URL (如 123 或 https://github.com/owner/repo/pull/123)：",
-			"",
-		);
-
-		if (!prRef?.trim()) return null;
 
 		const prNumber = parsePrReference(prRef);
 		if (!prNumber) {
@@ -924,6 +1005,21 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		};
 	}
 
+	async function showPrInput(ctx: ExtensionContext): Promise<ReviewTarget | null> {
+		if (await hasPendingChanges(pi)) {
+			ctx.ui.notify("无法检出 PR：工作区存在未提交改动，请先提交或暂存 (git stash)。", "error");
+			return null;
+		}
+
+		const prRef = await ctx.ui.editor(
+			"请输入 PR 编号或 GitHub URL (如 123 或 https://github.com/owner/repo/pull/123)：",
+			"",
+		);
+
+		if (!prRef?.trim()) return null;
+		return handlePrCheckout(ctx, prRef.trim());
+	}
+
 	async function executeReview(
 		ctx: ExtensionCommandContext,
 		target: ReviewTarget,
@@ -931,9 +1027,30 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		runtimeSettings?: Partial<ReviewSettings>,
 		reviewStyle: "lite" | "full" | "standard" = "standard",
 	): Promise<void> {
-		if (reviewOriginId) {
-			ctx.ui.notify("当前已有正在进行的审查会话。请先使用 /review-end 结束。", "warning");
+		if (isSessionLocked(ctx)) {
+			ctx.ui.notify("当前已有正在进行的审查会话。请使用 /review-end 结束，或输入 /review-reset 强制重置。", "warning");
 			return;
+		}
+
+		// 1. 前置预检：未提交改动预检，避免在空工作区盲目启动导致模型困惑或误报
+		if (target.type === "uncommitted") {
+			const hasChanges = await hasUncommittedChanges(pi);
+			if (!hasChanges) {
+				ctx.ui.notify("当前工作区没有检测到任何未提交的代码改动 (工作区与暂存区均干净)。", "info");
+				return;
+			}
+		}
+
+		// 2. 前置预检：分支对比预检
+		if (target.type === "baseBranch") {
+			const mergeBase = await getMergeBase(pi, target.branch);
+			if (mergeBase) {
+				const { stdout: diffStat, code: diffCode } = await safeExec(pi, "git", ["diff", "--stat", mergeBase], 10000);
+				if (diffCode === 0 && !diffStat.trim()) {
+					ctx.ui.notify(`当前分支相对于基准分支 '${target.branch}' 没有检测到任何差异改动。`, "info");
+					return;
+				}
+			}
 		}
 
 		const baseSettings = await loadSettings();
@@ -942,40 +1059,46 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			...runtimeSettings,
 		};
 
-		if (useFreshSession) {
-			const originId = ctx.sessionManager.getLeafId() ?? undefined;
-			if (!originId) {
-				ctx.ui.notify("无法获取当前会话位置，请在有消息的会话中重试。", "error");
-				return;
-			}
-			reviewOriginId = originId;
-			const lockedOriginId = originId;
+		let effectiveFreshSession = useFreshSession;
 
+		if (effectiveFreshSession) {
+			const originId = ctx.sessionManager.getLeafId() ?? undefined;
 			const entries = ctx.sessionManager.getEntries();
 			const firstUserMessage = entries.find((e) => e.type === "message" && e.message.role === "user");
 
-			if (!firstUserMessage) {
-				ctx.ui.notify("当前会话中未找到任何用户消息", "error");
-				reviewOriginId = undefined;
-				return;
-			}
-
-			try {
-				const result = await ctx.navigateTree(firstUserMessage.id, { summarize: false, label: "代码审查" });
-				if (result.cancelled) {
+			// 若当前会话已有用户消息，则切出独立审查分支
+			if (firstUserMessage && originId) {
+				const lockedOriginId = originId;
+				let navigated = false;
+				try {
+					const result = await ctx.navigateTree(firstUserMessage.id, { summarize: false, label: "代码审查" });
+					if (result.cancelled) {
+						reviewOriginId = undefined;
+						return;
+					}
+					navigated = true;
+					reviewOriginId = lockedOriginId;
+					ctx.ui.setEditorText("");
+					pi.appendEntry(REVIEW_STATE_TYPE, { active: true, originId: lockedOriginId });
+					setReviewWidget(ctx, true);
+				} catch (error) {
 					reviewOriginId = undefined;
-					return;
+					effectiveFreshSession = false;
+					setReviewWidget(ctx, false);
+					const msg = error instanceof Error ? error.message : String(error);
+					ctx.ui.notify(
+						navigated
+							? `已切入审查分支，但状态记录失败: ${msg}。审查结束后请用 /sessions 手动切回主会话。`
+							: `切入审查分支失败: ${msg}，降级为在当前会话执行。`,
+						"warning",
+					);
 				}
-			} catch (error) {
+			} else {
+				// 当前会话原本就是空白会话，无需切分支，直接在当前会话执行
+				effectiveFreshSession = false;
 				reviewOriginId = undefined;
-				ctx.ui.notify(`启动审查分支失败: ${error instanceof Error ? error.message : String(error)}`, "error");
-				return;
+				setReviewWidget(ctx, false);
 			}
-
-			reviewOriginId = lockedOriginId;
-			ctx.ui.setEditorText("");
-			setReviewWidget(ctx, true);
-			pi.appendEntry(REVIEW_STATE_TYPE, { active: true, originId: lockedOriginId });
 		}
 
 		const prompt = await buildReviewPrompt(pi, target, reviewStyle);
@@ -985,7 +1108,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		let fullPrompt = REVIEW_RUBRIC;
 
 		if (settings.mode === "subagents") {
-			fullPrompt += `\n\n---\n\n${buildSubagentOrchestrationPrompt(settings.concurrency, settings.gateEnabled)}`;
+			fullPrompt += `\n\n---\n\n${buildSubagentOrchestrationPrompt(settings.concurrency, settings.gateEnabled, prompt)}`;
 		}
 
 		fullPrompt += `\n\n---\n\n## 本次审查任务指示\n\n${prompt}`;
@@ -996,7 +1119,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
 		const styleTag = reviewStyle === "lite" ? "[极速]" : reviewStyle === "full" ? "[全量]" : "";
 		const modeLabel = settings.mode === "single" ? "单模型模式" : `多Subagent并发(${settings.concurrency}专家)`;
-		const modeHint = useFreshSession ? " (独立审查分支)" : "";
+		const modeHint = effectiveFreshSession ? " (独立审查分支)" : "";
 		ctx.ui.notify(`正在启动代码审查 ${styleTag}: ${hint}${modeHint} [${modeLabel}]`, "info");
 
 		pi.sendUserMessage(fullPrompt);
@@ -1022,12 +1145,12 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				const next = rawParts[i + 1];
 				if (next) {
 					const num = Number.parseInt(next, 10);
-					if (num >= 2 && num <= 6) {
-						settingsOverride.concurrency = num;
+					if (!Number.isNaN(num)) {
+						settingsOverride.concurrency = Math.min(6, Math.max(2, num));
 						settingsOverride.mode = "subagents";
-						i++;
-						continue;
 					}
+					i++;
+					continue;
 				}
 			} else {
 				parts.push(p);
@@ -1091,76 +1214,84 @@ export default function reviewExtension(pi: ExtensionAPI) {
 	pi.registerCommand("review", {
 		description: "启动 AI 代码审查 (交互式选择：未提交改动/分支对比/指定Commit/PR/目录/自定义/配置)",
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("代码审查需要交互式终端环境", "error");
-				return;
-			}
-
-			if (reviewOriginId) {
-				ctx.ui.notify("当前已有正在进行的审查。请先输入 /review-end 完成审查并返回。", "warning");
-				return;
-			}
-
-			const { code } = await pi.exec("git", ["rev-parse", "--git-dir"]);
-			if (code !== 0) {
-				ctx.ui.notify("当前目录不是有效的 Git 仓库", "error");
-				return;
-			}
-
-			let target: ReviewTarget | null = null;
-			let fromSelector = false;
-			const { target: parsedTarget, settingsOverride } = parseArgs(args);
-
-			if (parsedTarget) {
-				if (parsedTarget.type === "pr") {
-					target = await handlePrCheckout(ctx, parsedTarget.ref);
-					if (!target) {
-						ctx.ui.notify("PR 检出失败，返回主菜单。", "warning");
-					}
-				} else {
-					target = parsedTarget;
-				}
-			}
-
-			if (!target) {
-				fromSelector = true;
-			}
-
-			while (true) {
-				if (!target && fromSelector) {
-					target = await showReviewSelector(ctx);
-				}
-
-				if (!target) {
-					ctx.ui.notify("已取消代码审查", "info");
+			try {
+				if (!ctx.hasUI) {
+					ctx.ui.notify("代码审查需要交互式终端环境", "error");
 					return;
 				}
 
-				const entries = ctx.sessionManager.getEntries();
-				const messageCount = entries.filter((e) => e.type === "message").length;
+				if (isSessionLocked(ctx)) {
+					ctx.ui.notify("当前已有正在进行的审查。请使用 /review-end 结束，或输入 /review-reset 强制重置。", "warning");
+					return;
+				}
 
-				let useFreshSession = false;
+				const { code } = await safeExec(pi, "git", ["rev-parse", "--git-dir"], 8000);
+				if (code === -1) {
+					ctx.ui.notify("Git 仓库状态检测超时，请检查磁盘负载或是否有其他进程持有文件锁", "warning");
+					return;
+				}
+				if (code !== 0) {
+					ctx.ui.notify("当前目录不是有效的 Git 仓库", "error");
+					return;
+				}
 
-				if (messageCount > 0) {
-					const choice = await ctx.ui.select("选择审查执行环境：", [
-						"独立分支审查 (推荐，主会话保持干净)",
-						"当前会话直接审查",
-					]);
+				let target: ReviewTarget | null = null;
+				let fromSelector = false;
+				const { target: parsedTarget, settingsOverride } = parseArgs(args);
 
-					if (choice === undefined) {
-						if (fromSelector) {
-							target = null;
-							continue;
+				if (parsedTarget) {
+					if (parsedTarget.type === "pr") {
+						target = await handlePrCheckout(ctx, parsedTarget.ref);
+						if (!target) {
+							ctx.ui.notify("PR 检出失败，返回主菜单。", "warning");
 						}
+					} else {
+						target = parsedTarget;
+					}
+				}
+
+				if (!target) {
+					fromSelector = true;
+				}
+
+				while (true) {
+					if (!target && fromSelector) {
+						target = await showReviewSelector(ctx);
+					}
+
+					if (!target) {
 						ctx.ui.notify("已取消代码审查", "info");
 						return;
 					}
 
-					useFreshSession = choice.startsWith("独立分支审查");
-				}
+					const entries = ctx.sessionManager.getEntries();
+					const messageCount = entries.filter((e) => e.type === "message").length;
 
-				await executeReview(ctx, target, useFreshSession, settingsOverride);
-				return;
+					let useFreshSession = false;
+
+					if (messageCount > 0) {
+						const choice = await ctx.ui.select("选择审查执行环境：", [
+							"独立分支审查 (推荐，主会话保持干净)",
+							"当前会话直接审查",
+						]);
+
+						if (choice === undefined) {
+							if (fromSelector) {
+								target = null;
+								continue;
+							}
+							ctx.ui.notify("已取消代码审查", "info");
+							return;
+						}
+
+						useFreshSession = choice.startsWith("独立分支审查");
+					}
+
+					await executeReview(ctx, target, useFreshSession, settingsOverride);
+					return;
+				}
+			} catch (err) {
+				ctx.ui.notify(`代码审查执行异常: ${err instanceof Error ? err.message : String(err)}`, "error");
 			}
 		},
 	});
@@ -1169,11 +1300,15 @@ export default function reviewExtension(pi: ExtensionAPI) {
 	pi.registerCommand("review-config", {
 		description: "配置代码审查模式 (切换单模型直接审查 / 多 Subagent 并发 2~6 个专家)",
 		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("review-config 需要交互式终端环境", "error");
-				return;
+			try {
+				if (!ctx.hasUI) {
+					ctx.ui.notify("review-config 需要交互式终端环境", "error");
+					return;
+				}
+				await showConfigDialog(ctx);
+			} catch (err) {
+				ctx.ui.notify(`审查配置执行异常: ${err instanceof Error ? err.message : String(err)}`, "error");
 			}
-			await showConfigDialog(ctx);
 		},
 	});
 
@@ -1181,23 +1316,31 @@ export default function reviewExtension(pi: ExtensionAPI) {
 	pi.registerCommand("review-lite", {
 		description: "极速代码审查 (直接对当前工作区未提交改动做审查，无需弹窗选择)",
 		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("代码审查需要交互式终端环境", "error");
-				return;
-			}
+			try {
+				if (!ctx.hasUI) {
+					ctx.ui.notify("代码审查需要交互式终端环境", "error");
+					return;
+				}
 
-			if (reviewOriginId) {
-				ctx.ui.notify("当前已有正在进行的审查。请先输入 /review-end 完成审查并返回。", "warning");
-				return;
-			}
+				if (isSessionLocked(ctx)) {
+					ctx.ui.notify("当前已有正在进行的审查。请使用 /review-end 结束，或输入 /review-reset 强制重置。", "warning");
+					return;
+				}
 
-			const { code } = await pi.exec("git", ["rev-parse", "--git-dir"]);
-			if (code !== 0) {
-				ctx.ui.notify("当前目录不是有效的 Git 仓库", "error");
-				return;
-			}
+				const { code } = await safeExec(pi, "git", ["rev-parse", "--git-dir"], 8000);
+				if (code === -1) {
+					ctx.ui.notify("Git 仓库状态检测超时，请检查磁盘负载或是否有其他进程持有文件锁", "warning");
+					return;
+				}
+				if (code !== 0) {
+					ctx.ui.notify("当前目录不是有效的 Git 仓库", "error");
+					return;
+				}
 
-			await executeReview(ctx, { type: "uncommitted" }, false, undefined, "lite");
+				await executeReview(ctx, { type: "uncommitted" }, false, undefined, "lite");
+			} catch (err) {
+				ctx.ui.notify(`极速代码审查执行异常: ${err instanceof Error ? err.message : String(err)}`, "error");
+			}
 		},
 	});
 
@@ -1205,36 +1348,44 @@ export default function reviewExtension(pi: ExtensionAPI) {
 	pi.registerCommand("review-full", {
 		description: "全量深度代码审查 (直接对工作区与分支全部改动展开深度审查，无多余前置步骤与待办清单)",
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("代码审查需要交互式终端环境", "error");
-				return;
-			}
-
-			if (reviewOriginId) {
-				ctx.ui.notify("当前已有正在进行的审查。请先输入 /review-end 完成审查并返回。", "warning");
-				return;
-			}
-
-			const { code } = await pi.exec("git", ["rev-parse", "--git-dir"]);
-			if (code !== 0) {
-				ctx.ui.notify("当前目录不是有效的 Git 仓库", "error");
-				return;
-			}
-
-			const { target, settingsOverride } = parseArgs(args);
-			let finalTarget = target && target.type !== "pr" ? target : null;
-
-			if (!finalTarget) {
-				const defaultType = await getSmartDefault();
-				if (defaultType === "baseBranch") {
-					const defaultBranch = await getDefaultBranch(pi);
-					finalTarget = { type: "baseBranch", branch: defaultBranch };
-				} else {
-					finalTarget = { type: "uncommitted" };
+			try {
+				if (!ctx.hasUI) {
+					ctx.ui.notify("代码审查需要交互式终端环境", "error");
+					return;
 				}
-			}
 
-			await executeReview(ctx, finalTarget, false, settingsOverride, "full");
+				if (isSessionLocked(ctx)) {
+					ctx.ui.notify("当前已有正在进行的审查。请使用 /review-end 结束，或输入 /review-reset 强制重置。", "warning");
+					return;
+				}
+
+				const { code } = await safeExec(pi, "git", ["rev-parse", "--git-dir"], 8000);
+				if (code === -1) {
+					ctx.ui.notify("Git 仓库状态检测超时，请检查磁盘负载或是否有其他进程持有文件锁", "warning");
+					return;
+				}
+				if (code !== 0) {
+					ctx.ui.notify("当前目录不是有效的 Git 仓库", "error");
+					return;
+				}
+
+				const { target, settingsOverride } = parseArgs(args);
+				let finalTarget = target && target.type !== "pr" ? target : null;
+
+				if (!finalTarget) {
+					const defaultType = await getSmartDefault();
+					if (defaultType === "baseBranch") {
+						const defaultBranch = await getDefaultBranch(pi);
+						finalTarget = { type: "baseBranch", branch: defaultBranch };
+					} else {
+						finalTarget = { type: "uncommitted" };
+					}
+				}
+
+				await executeReview(ctx, finalTarget, false, settingsOverride, "full");
+			} catch (err) {
+				ctx.ui.notify(`全量代码审查执行异常: ${err instanceof Error ? err.message : String(err)}`, "error");
+			}
 		},
 	});
 
@@ -1259,18 +1410,21 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
 	// 注册 /review-end (及向后兼容的 /end-review) 结束审查并返回命令
 	const handleReviewEnd = async (_args: string | undefined, ctx: ExtensionCommandContext) => {
-		if (!ctx.hasUI) {
-			ctx.ui.notify("review-end 需要交互式终端环境", "error");
-			return;
-		}
+		try {
+			if (!ctx.hasUI) {
+				ctx.ui.notify("review-end 需要交互式终端环境", "error");
+				return;
+			}
 
-			if (!reviewOriginId) {
+			let originId = reviewOriginId;
+			if (!originId) {
 				const state = getReviewState(ctx);
 				if (state?.active && state.originId) {
+					originId = state.originId;
 					reviewOriginId = state.originId;
 				} else if (state?.active) {
 					setReviewWidget(ctx, false);
-					pi.appendEntry(REVIEW_STATE_TYPE, { active: false });
+					pi.appendEntry(REVIEW_STATE_TYPE, { active: false, originId: state.originId });
 					ctx.ui.notify("未检测到分支关联信息，已重置审查状态。", "warning");
 					return;
 				} else {
@@ -1290,42 +1444,69 @@ export default function reviewExtension(pi: ExtensionAPI) {
 			}
 
 			const wantsSummary = summaryChoice.startsWith("汇总审查结果");
-			const originId = reviewOriginId;
 
 			if (wantsSummary) {
 				const result = await ctx.ui.custom<{ cancelled: boolean; error?: string } | null>((tui, theme, _kb, done) => {
+					let settled = false;
+					const finish = (val: { cancelled: boolean; error?: string } | null) => {
+						if (settled) return;
+						settled = true;
+						done(val);
+					};
+
 					const loader = new BorderedLoader(tui, theme, "正在汇总代码审查报告并返回主分支...");
-					loader.onAbort = () => done(null);
+					loader.onAbort = () => finish(null);
 
 					ctx.navigateTree(originId!, {
 						summarize: true,
 						customInstructions: REVIEW_SUMMARY_PROMPT,
 						replaceInstructions: true,
 					})
-						.then(done)
-						.catch((err) => done({ cancelled: false, error: err instanceof Error ? err.message : String(err) }));
+						.then(finish)
+						.catch((err) => finish({ cancelled: false, error: err instanceof Error ? err.message : String(err) }));
 
-					return loader;
+					return {
+						render: (w) => loader.render(w),
+						invalidate: () => loader.invalidate(),
+						handleInput: (d) => {
+							loader.handleInput(d);
+							tui.requestRender();
+						},
+					};
 				});
 
 				if (result === null) {
-					ctx.ui.notify("已取消返回操作。", "info");
+					ctx.ui.notify("已中断等待。后台总结可能仍在进行，完成后会自动返回主会话。", "info");
 					return;
 				}
 
 				if (result.error) {
-					ctx.ui.notify(`返回主分支失败: ${result.error}`, "error");
+					ctx.ui.notify(`AI 总结失败 (${result.error})，正在自动尝试直接返回主分支...`, "warning");
+					try {
+						const navRes = await ctx.navigateTree(originId!, { summarize: false });
+						if (navRes.cancelled) {
+							ctx.ui.notify("导航已取消，当前仍保留在审查分支中。", "info");
+							return;
+						}
+						setReviewWidget(ctx, false);
+						reviewOriginId = undefined;
+						pi.appendEntry(REVIEW_STATE_TYPE, { active: false, originId });
+						ctx.ui.notify("已直接返回主会话（未生成整改总结）。", "info");
+						return;
+					} catch (navErr) {
+						ctx.ui.notify(`返回失败: ${navErr instanceof Error ? navErr.message : String(navErr)}。可使用 /review-reset 强制重置状态。`, "error");
+						return;
+					}
+				}
+
+				if (result.cancelled) {
+					ctx.ui.notify("导航已取消，当前仍保留在审查分支中。", "info");
 					return;
 				}
 
 				setReviewWidget(ctx, false);
 				reviewOriginId = undefined;
-				pi.appendEntry(REVIEW_STATE_TYPE, { active: false });
-
-				if (result.cancelled) {
-					ctx.ui.notify("导航已取消", "info");
-					return;
-				}
+				pi.appendEntry(REVIEW_STATE_TYPE, { active: false, originId });
 
 				if (!ctx.ui.getEditorText().trim()) {
 					ctx.ui.setEditorText("根据上述代码审查发现进行修改修复");
@@ -1337,18 +1518,21 @@ export default function reviewExtension(pi: ExtensionAPI) {
 					const result = await ctx.navigateTree(originId!, { summarize: false });
 
 					if (result.cancelled) {
-						ctx.ui.notify("导航已取消", "info");
+						ctx.ui.notify("导航已取消，当前仍保留在审查分支中。", "info");
 						return;
 					}
 
 					setReviewWidget(ctx, false);
 					reviewOriginId = undefined;
-					pi.appendEntry(REVIEW_STATE_TYPE, { active: false });
+					pi.appendEntry(REVIEW_STATE_TYPE, { active: false, originId });
 					ctx.ui.notify("代码审查已结束，已直接返回主会话。", "info");
 				} catch (error) {
-					ctx.ui.notify(`返回失败: ${error instanceof Error ? error.message : String(error)}`, "error");
+					ctx.ui.notify(`返回失败: ${error instanceof Error ? error.message : String(error)}。可使用 /review-reset 强制重置状态。`, "error");
 				}
 			}
+		} catch (err) {
+			ctx.ui.notify(`结束代码审查执行异常: ${err instanceof Error ? err.message : String(err)}`, "error");
+		}
 	};
 
 	pi.registerCommand("review-end", {
@@ -1360,6 +1544,34 @@ export default function reviewExtension(pi: ExtensionAPI) {
 	pi.registerCommand("end-review", {
 		description: "完成代码审查并一键返回主会话位置 (/review-end 别名)",
 		handler: handleReviewEnd,
+	});
+
+	// 注册 /review-reset 强制重置状态命令
+	pi.registerCommand("review-reset", {
+		description: "强制重置卡死或残留的代码审查会话状态与界面挂件 (优先尝试返回主会话)",
+		handler: async (_args, ctx) => {
+			try {
+				const targetOriginId = reviewOriginId ?? getReviewState(ctx)?.originId;
+				reviewOriginId = undefined;
+				setReviewWidget(ctx, false);
+				pi.appendEntry(REVIEW_STATE_TYPE, { active: false, originId: targetOriginId });
+
+				if (targetOriginId) {
+					try {
+						const result = await ctx.navigateTree(targetOriginId, { summarize: false });
+						if (!result.cancelled) {
+							ctx.ui.notify("已成功强制重置审查状态并返回主会话。", "info");
+							return;
+						}
+					} catch {
+						/* 忽略导航错误，降级提示 */
+					}
+				}
+				ctx.ui.notify("已成功强制重置代码审查会话状态。若当前仍停留在审查分支，可使用 /sessions 切换回主会话。", "info");
+			} catch (err) {
+				ctx.ui.notify(`重置审查状态异常: ${err instanceof Error ? err.message : String(err)}`, "error");
+			}
+		},
 	});
 
 	// 针对【代码开发会话·修复方】的提示词模板
@@ -1411,82 +1623,75 @@ export default function reviewExtension(pi: ExtensionAPI) {
 `;
 
 	function detectReviewSyncRole(
-		entries: any[],
+		ctx: ExtensionContext,
 		content: string,
 		flag?: "fix" | "check",
 	): "fix" | "check" {
 		if (flag) return flag;
 
-		// 1. 会话历史特征判断：当前会话是否曾作为审查分支或执行过 review
-		const hasReviewHistory = entries.some((e) => {
-			if (e.type === "custom" && e.customType === REVIEW_STATE_TYPE) return true;
-			if (e.type === "message" && e.message?.content) {
-				const text = JSON.stringify(e.message.content);
-				return text.includes("核心代码审查准则") || text.includes("正在启动代码审查");
-			}
-			return false;
-		});
-
-		if (hasReviewHistory) {
+		// 1. 若当前处于活跃的独立审查分支中 (active: true)，则判定为只读复核方
+		const state = getReviewState(ctx);
+		if (state?.active) {
 			return "check";
 		}
 
-		// 2. 粘贴内容特征判断：
-		// 审查发现一般包含 [P0]、[P1]、"审查发现"、"缺陷说明"、"综合裁决"
-		// 修复汇报一般包含 "已修复"、"整改与回复"、"修改说明"、"本次整改"
-		const hasReviewMarkers = /\[P[0-3]\]|审查发现|缺陷说明|综合裁决|代码审查准则/i.test(content);
-		const hasFixMarkers = /已修复|整改与回复|修改说明|本次整改|无需修改/i.test(content);
+		// 2. 文本特征识别：
+		// 开发者修复整改汇报通常包含 "[已修复]"、"整改与回复"、"整改总结"、"修改说明"
+		// 审查发现清单通常包含 "[P0]"、"[P1]"、"审查发现"、"缺陷说明"、"综合裁决"
+		const hasFixMarkers = /\[已修复\]|整改与回复|整改总结|修改说明|为何没有道理/i.test(content);
+		const hasReviewMarkers = /\[P[0-3]\]|审查发现|缺陷说明|综合裁决/i.test(content);
 
 		if (hasFixMarkers && !hasReviewMarkers) {
 			return "check";
 		}
-		if (hasReviewMarkers) {
-			return "fix";
-		}
 
+		// 默认作为开发修复方：有理改代码，没理写说明
 		return "fix";
 	}
 
 	async function handleReviewSync(rawArgs: string | undefined, ctx: ExtensionCommandContext) {
-		if (!ctx.hasUI) {
-			ctx.ui.notify("review-sync 需要交互式终端环境", "error");
-			return;
-		}
-
-		let text = rawArgs?.trim() || "";
-		let forcedRole: "fix" | "check" | undefined = undefined;
-
-		if (text.startsWith("--fix ")) {
-			forcedRole = "fix";
-			text = text.slice(6).trim();
-		} else if (text.startsWith("--check ") || text.startsWith("--review ")) {
-			forcedRole = "check";
-			text = text.replace(/^--(?:check|review)\s+/, "").trim();
-		}
-
-		if (!text) {
-			const input = await ctx.ui.editor(
-				"请粘贴 Review 审查发现清单（发给开发会话修复）或 修复整改说明（发给审查会话复核）：",
-				"",
-			);
-			if (!input?.trim()) {
-				ctx.ui.notify("已取消操作", "info");
+		try {
+			if (!ctx.hasUI) {
+				ctx.ui.notify("review-sync 需要交互式终端环境", "error");
 				return;
 			}
-			text = input.trim();
-		}
 
-		const entries = ctx.sessionManager.getEntries();
-		const role = detectReviewSyncRole(entries, text, forcedRole);
+			let text = rawArgs?.trim() || "";
+			let forcedRole: "fix" | "check" | undefined = undefined;
 
-		if (role === "fix") {
-			ctx.ui.notify("🤖 自动识别为【代码开发会话】：正在逐项核验并执行代码修复...", "info");
-			const prompt = DEV_FIX_PROMPT_TEMPLATE.replace("{content}", text);
-			pi.sendUserMessage(prompt);
-		} else {
-			ctx.ui.notify("🔍 自动识别为【审查复核会话】：正在对照改动进行只读复核 (严禁改动代码)...", "info");
-			const prompt = REVIEWER_RECHECK_PROMPT_TEMPLATE.replace("{content}", text);
-			pi.sendUserMessage(prompt);
+			if (text.startsWith("--fix ")) {
+				forcedRole = "fix";
+				text = text.slice(6).trim();
+			} else if (text.startsWith("--check ") || text.startsWith("--review ")) {
+				forcedRole = "check";
+				text = text.replace(/^--(?:check|review)\s+/, "").trim();
+			}
+
+			if (!text) {
+				const input = await ctx.ui.editor(
+					"请粘贴 Review 审查发现清单（发给开发会话修复）或 修复整改说明（发给审查会话复核）：",
+					"",
+				);
+				if (!input?.trim()) {
+					ctx.ui.notify("已取消操作", "info");
+					return;
+				}
+				text = input.trim();
+			}
+
+			const role = detectReviewSyncRole(ctx, text, forcedRole);
+
+			if (role === "fix") {
+				ctx.ui.notify("🤖 自动识别为【代码开发会话】：正在逐项核验并执行代码修复...", "info");
+				const prompt = DEV_FIX_PROMPT_TEMPLATE.replace("{content}", text);
+				pi.sendUserMessage(prompt);
+			} else {
+				ctx.ui.notify("🔍 自动识别为【审查复核会话】：正在对照改动进行只读复核 (严禁改动代码)...", "info");
+				const prompt = REVIEWER_RECHECK_PROMPT_TEMPLATE.replace("{content}", text);
+				pi.sendUserMessage(prompt);
+			}
+		} catch (err) {
+			ctx.ui.notify(`审查同步执行异常: ${err instanceof Error ? err.message : String(err)}`, "error");
 		}
 	}
 

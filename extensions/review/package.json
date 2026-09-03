@@ -31,8 +31,5 @@
         "./agents"
       ]
     }
-  },
-  "dependencies": {
-    "@sinclair/typebox": "^0.34.0"
   }
 }
