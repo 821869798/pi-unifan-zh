@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
 	commitWithMsg,
-	getChangedFiles,
+	getStagedFiles,
 	getStagedDiff,
 	getUnpushedCommits,
 	getUnstagedDiff,
@@ -35,7 +35,7 @@ function parseArgs(raw: string): ParsedCommitArgs {
 	};
 }
 
-async function generateCommitMessage(
+export async function generateCommitMessage(
 	ctx: ExtensionCommandContext,
 	diff: string,
 	changedFiles: string[],
@@ -55,50 +55,26 @@ async function generateCommitMessage(
 		.filter(Boolean)
 		.join("\n");
 
-	if (ctx.model && ctx.modelRegistry) {
-		try {
-			const provider = ctx.modelRegistry.getProvider(ctx.model.provider);
-			if (provider) {
-				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-				if (!auth.ok) {
-					console.error("pi-commit getApiKeyAndHeaders error:", auth.error);
-				} else {
-					const response = await provider
-						.streamSimple(
-							ctx.model,
-							{
-								systemPrompt: COMMIT_SYSTEM_PROMPT,
-								messages: [
-									{
-										role: "user",
-										content: [{ type: "text", text: userPrompt }],
-										timestamp: Date.now(),
-									},
-								],
-							},
-							{ apiKey: auth.apiKey, headers: auth.headers, maxTokens: 800 },
-						)
-						.result();
+	if (!ctx.model) throw new Error("当前未选择模型，请先使用 /model 选择模型。");
+	if (typeof ctx.modelRegistry?.complete !== "function")
+		throw new Error("当前 Pi 不支持统一模型调用接口，请更新 Pi 后重试。");
 
-					const text = response.content
-						?.map((c) => (c.type === "text" ? c.text : ""))
-						.join("")
-						.trim();
+	// 由宿主统一解析认证、代理地址及提供方环境，避免手动调用遗漏配置。
+	const response = await ctx.modelRegistry.complete(ctx.model, {
+		systemPrompt: COMMIT_SYSTEM_PROMPT,
+		messages: [{ role: "user", content: [{ type: "text", text: userPrompt }], timestamp: Date.now() }],
+	}, { maxTokens: 4096, signal: ctx.signal });
+	if (response.stopReason !== "stop")
+		throw new Error(`模型未正常完成生成（${response.stopReason}）：${response.errorMessage || "请检查模型状态后重试。"}`);
 
-					if (text) {
-						return text.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "").trim();
-					}
-				}
-			}
-		} catch (err) {
-			console.error("pi-commit streamSimple error:", err);
-		}
-	}
-
-	// 智能保底推断
-	const firstFile = changedFiles[0] ?? "core";
-	const scope = firstFile.split(/[/\\]/)[0] || "core";
-	return `chore(${scope}): 更新代码与相关配置\n\n- 更新了 ${changedFiles.length} 个文件`;
+	const text = response.content.map((c) => c.type === "text" ? c.text : "").join("").trim()
+		.replace(/^```[a-zA-Z]*\r?\n?/, "").replace(/\r?\n?```$/, "").trim();
+	if (!text) throw new Error("模型返回了空的提交信息。");
+	if (!/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(\([^()\r\n]+\))?: [^\r\n]+$/.test(text.split(/\r?\n/)[0]))
+		throw new Error("模型返回的提交标题不符合约定格式，请重试或补充修改说明。");
+	if (text.includes("更新代码与相关配置"))
+		throw new Error("模型返回了无具体业务含义的通用提交信息，请补充修改说明后重试。");
+	return text;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -116,7 +92,7 @@ export default function (pi: ExtensionAPI) {
 		const parsed = parseArgs(args);
 		let stagedDiff = await getStagedDiff(ctx.cwd);
 		const unstagedDiff = await getUnstagedDiff(ctx.cwd);
-		const changedFiles = await getChangedFiles(ctx.cwd);
+
 
 		if (!stagedDiff && !unstagedDiff) {
 			if (andPush) {
@@ -163,7 +139,18 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		notify("正在深度分析代码改动并生成中文 Commit Message...", "info");
-		const commitMessage = await generateCommitMessage(ctx, stagedDiff || unstagedDiff, changedFiles, parsed.hint);
+		let commitMessage: string;
+		try {
+			if (!stagedDiff.trim()) throw new Error("暂存区没有可用于生成提交信息的差异。");
+			const changedFiles = await getStagedFiles(ctx.cwd);
+			commitMessage = await generateCommitMessage(ctx, stagedDiff, changedFiles, parsed.hint);
+		} catch (error) {
+			// 生成失败必须停止，禁止用固定文案继续提交或推送。
+			const reason = error instanceof Error ? error.message : String(error);
+			notify(`提交信息生成失败，未执行提交或推送：${reason}`, "error");
+			pi.sendMessage({ customType: "pi-commit-error", content: `提交信息生成失败，未执行提交或推送。\n\n${reason}\n\n当前暂存内容保留，可修复模型配置后重新执行。`, display: true });
+			return;
+		}
 
 		const commitRes = await commitWithMsg(ctx.cwd, commitMessage);
 		if (!commitRes.ok) {

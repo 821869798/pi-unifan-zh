@@ -122,7 +122,7 @@ pi install npm:@unifan/pi-commit-zh
 
 ### 3. 📦 `commit`（智能 Git 提交助手·中文版）
 - **命令**：
-  - **`/commit`**：自动分析暂存区/工作区代码变动（`git diff`），生成标准的 Conventional Commits 纯中文提交信息并 1 秒完成提交。
+  - **`/commit`**：自动分析暂存区/工作区代码变动（`git diff`），使用当前会话模型，根据实际暂存内容生成标准的 Conventional Commits 纯中文提交信息后提交。模型认证、请求、空结果或输出校验失败时会显示原因并停止提交与推送，保留暂存内容，不再使用固定兜底文案。
   - **`/commit-push`** 🚀：自动生成中文 Commit 提交，并**自动执行 `git push` 推送**到远端分支。
 - **常用参数与用法**：
   - `/commit`：智能提交（有暂存只提暂存，无暂存自动暂存全量）。

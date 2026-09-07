@@ -9,7 +9,8 @@
     "url": "https://github.com/821869798/pi-unifan-zh.git"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:commit": "node --test extensions/commit/tests/commit.test.mjs"
   },
   "pi": {
     "extensions": [

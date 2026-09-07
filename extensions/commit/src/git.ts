@@ -36,6 +36,13 @@ export async function getUnstagedDiff(cwd: string): Promise<string> {
 	return res.ok ? res.stdout : "";
 }
 
+// 使用空字符分隔，保留中文、空格和特殊字符文件名；只描述本次真正提交的文件。
+export async function getStagedFiles(cwd: string): Promise<string[]> {
+	const res = await runGit(cwd, ["diff", "--cached", "--name-only", "-z"]);
+	if (!res.ok) throw new Error(`读取暂存文件失败：${res.stderr}`);
+	return res.stdout.split("\0").filter(Boolean);
+}
+
 export async function getChangedFiles(cwd: string): Promise<string[]> {
 	const res = await runGit(cwd, ["status", "--porcelain"]);
 	if (!res.ok || !res.stdout.trim()) return [];
