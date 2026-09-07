@@ -40,6 +40,7 @@ export async function generateCommitMessage(
 	diff: string,
 	changedFiles: string[],
 	userHint?: string,
+	thinkingLevel = ctx.thinkingLevel,
 ): Promise<string> {
 	const truncatedDiff = diff.length > 30000 ? diff.slice(0, 30000) + "\n\n... (diff已截断)" : diff;
 	const userPrompt = [
@@ -56,16 +57,29 @@ export async function generateCommitMessage(
 		.join("\n");
 
 	if (!ctx.model) throw new Error("当前未选择模型，请先使用 /model 选择模型。");
-	if (typeof ctx.modelRegistry?.complete !== "function")
+	if (typeof ctx.modelRegistry?.getProvider !== "function" || typeof ctx.modelRegistry?.getProviderAuth !== "function")
 		throw new Error("当前 Pi 不支持统一模型调用接口，请更新 Pi 后重试。");
+	const modelLabel = `${ctx.model.provider}/${ctx.model.id}`;
+	const provider = ctx.modelRegistry.getProvider(ctx.model.provider);
+	if (!provider) throw new Error(`模型 ${modelLabel} 的提供方不可用，请重新选择模型。`);
+	const resolved = await ctx.modelRegistry.getProviderAuth(ctx.model.provider);
+	if (!resolved) throw new Error(`模型 ${modelLabel} 的认证未配置，请先完成登录或配置认证。`);
 
-	// 由宿主统一解析认证、代理地址及提供方环境，避免手动调用遗漏配置。
-	const response = await ctx.modelRegistry.complete(ctx.model, {
+	// 宿主解析认证、代理地址和环境；统一接口按模型能力转换会话思考档位，避免底层调用默认发送 none。
+	const model = resolved.auth.baseUrl ? { ...ctx.model, baseUrl: resolved.auth.baseUrl } : ctx.model;
+	const response = await provider.streamSimple(model, {
 		systemPrompt: COMMIT_SYSTEM_PROMPT,
 		messages: [{ role: "user", content: [{ type: "text", text: userPrompt }], timestamp: Date.now() }],
-	}, { maxTokens: 4096, signal: ctx.signal });
+	}, {
+		maxTokens: 4096,
+		signal: ctx.signal,
+		reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
+		apiKey: resolved.auth.apiKey,
+		headers: resolved.auth.headers,
+		env: resolved.env,
+	}).result();
 	if (response.stopReason !== "stop")
-		throw new Error(`模型未正常完成生成（${response.stopReason}）：${response.errorMessage || "请检查模型状态后重试。"}`);
+		throw new Error(`模型 ${modelLabel} 未正常完成生成（${response.stopReason}）：${response.errorMessage || "请检查模型状态后重试。"}`);
 
 	const text = response.content.map((c) => c.type === "text" ? c.text : "").join("").trim()
 		.replace(/^```[a-zA-Z]*\r?\n?/, "").replace(/\r?\n?```$/, "").trim();
@@ -143,7 +157,9 @@ export default function (pi: ExtensionAPI) {
 		try {
 			if (!stagedDiff.trim()) throw new Error("暂存区没有可用于生成提交信息的差异。");
 			const changedFiles = await getStagedFiles(ctx.cwd);
-			commitMessage = await generateCommitMessage(ctx, stagedDiff, changedFiles, parsed.hint);
+			commitMessage = await generateCommitMessage(
+				ctx, stagedDiff, changedFiles, parsed.hint, ctx.thinkingLevel ?? pi.getThinkingLevel(),
+			);
 		} catch (error) {
 			// 生成失败必须停止，禁止用固定文案继续提交或推送。
 			const reason = error instanceof Error ? error.message : String(error);

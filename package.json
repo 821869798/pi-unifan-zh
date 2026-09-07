@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:commit": "node --test extensions/commit/tests/commit.test.mjs"
+    "test:commit": "node --test extensions/commit/tests/commit.test.mjs",
+    "test:review": "node --test extensions/review/tests/orchestration.test.mjs"
   },
   "pi": {
     "extensions": [

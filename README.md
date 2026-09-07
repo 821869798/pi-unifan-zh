@@ -91,6 +91,7 @@ pi install npm:@unifan/pi-commit-zh
   - **Dual Execution Engine**:
     - ① **Single-Model Native Review (Default & Recommended)**: 0 subagent dependencies, 0 network dropouts, ultra-fast & 100% reliable.
     - ② **Multi-Subagent Concurrent Review**: Freely configure **2, 3, 4, 5, or 6** concurrent expert subagents (Bugbot, Security, Perf, Compliance, Comments, History).
+  - **Session Model & Thinking Level Inheritance**: Single-model review and final synthesis run directly in the current session. Multi-expert review launches through one asynchronous workflow and explicitly passes the current session's `provider/model:thinking-level` to every expert, preventing subagent defaults from overriding the session settings.
 - **Commands**:
   - **`/review`** 🔍: Launches interactive Chinese TUI menu with 6 review modes + settings:
     - ① `Review uncommitted changes` (staged + unstaged working tree, smart default)
@@ -117,7 +118,7 @@ pi install npm:@unifan/pi-commit-zh
 
 ### 3. 📦 `commit` (Intelligent Conventional Commits Assistant)
 - **Commands**:
-  - **`/commit`**: Analyzes `git diff`, generates standardized Conventional Commits in fluent Chinese, and commits in 1 second.
+  - **`/commit`**: Analyzes staged and working-tree changes (`git diff`), uses the current session's model and thinking level through the provider's unified parameter handling, and generates a Chinese Conventional Commit message from the actual staged changes before committing. Authentication, request, empty-response, or output-validation failures display the reason and stop the commit and push, preserving staged changes without substituting a generic fallback message.
   - **`/commit-push`** 🚀: Generates Chinese commit and automatically executes `git push` to remote.
 - **Usage & Flags**:
   - `/commit`: Smart commit (commits staged changes if staged, or auto-stages all if unstaged).
