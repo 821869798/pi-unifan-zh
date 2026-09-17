@@ -56,6 +56,10 @@ pi install D:/program/my/pi-unifan-zh
 
 ### Option B: Install Individual Extensions
 
+Each extension is published as a standalone npm package and can be installed individually:
+
+> 💡 **Note**: Pi CLI's `git:` source only supports cloning the entire repository root. For **installing individual extensions**, use the recommended `npm:` method or local paths.
+
 #### 1. Install `sessions` (Session Manager with TUI Preview):
 ```bash
 # Via npm
@@ -80,7 +84,8 @@ pi install npm:@unifan/pi-commit-zh
 pi install D:/program/my/pi-unifan-zh/extensions/commit
 ```
 
-#### 4. Install `workflow` (Compound Engineering Engine):
+#### 4. Install `workflow` (Compound Engineering Engine & Skills):
+> Includes `/workflow` command, checkpoint persistence, token filters, and all 6 workflow skills (`00-next` ~ `05-learn`).
 ```bash
 # Via npm
 pi install npm:@unifan/pi-workflow-zh

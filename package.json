@@ -28,6 +28,7 @@
       ]
     },
     "skills": [
+      "./extensions/workflow/skills",
       "./skills"
     ]
   },

@@ -29,9 +29,19 @@
       "optional": true
     }
   },
+  "files": [
+    "index.ts",
+    "src",
+    "skills",
+    "README.md",
+    "package.json"
+  ],
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   }
 }

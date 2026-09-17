@@ -54,9 +54,13 @@ pi install D:/program/my/pi-unifan-zh
 
 ### 模式 B：按需单独安装单个插件
 
+每个插件均已独立打包并发布至 npm，可根据需要挑选单独安装（互不依赖，开箱即用）：
+
+> 💡 **提示**：Pi CLI 的 `git:` 方式仅支持安装整个仓库根目录；若需**按模块单独安装**，请使用推荐的 `npm:` 方式或本地绝对路径。
+
 #### 1. 仅安装 `sessions`（历史会话管理器·中文版）：
 ```bash
-# npm 在线安装
+# npm 在线单独安装
 pi install npm:@unifan/pi-sessions-zh
 # 或本地路径安装
 pi install D:/program/my/pi-unifan-zh/extensions/sessions
@@ -64,7 +68,7 @@ pi install D:/program/my/pi-unifan-zh/extensions/sessions
 
 #### 2. 仅安装 `review`（AI 代码审查系统·中文版）：
 ```bash
-# npm 在线安装
+# npm 在线单独安装
 pi install npm:@unifan/pi-review-zh
 # 或本地路径安装
 pi install D:/program/my/pi-unifan-zh/extensions/review
@@ -72,15 +76,16 @@ pi install D:/program/my/pi-unifan-zh/extensions/review
 
 #### 3. 仅安装 `commit`（智能 Git 提交助手·中文版）：
 ```bash
-# npm 在线安装
+# npm 在线单独安装
 pi install npm:@unifan/pi-commit-zh
 # 或本地路径安装
 pi install D:/program/my/pi-unifan-zh/extensions/commit
 ```
 
-#### 4. 仅安装 `workflow`（复合工程工作流引擎·中文版）：
+#### 4. 仅安装 `workflow`（复合工程工作流引擎与全套技能·中文版）：
+> 包含 `/workflow` 命令、断点续跑、Token压缩器以及完整的 6 大流程技能 (`00-next` ~ `05-learn`)。
 ```bash
-# npm 在线安装
+# npm 在线单独安装
 pi install npm:@unifan/pi-workflow-zh
 # 或本地路径安装
 pi install D:/program/my/pi-unifan-zh/extensions/workflow
