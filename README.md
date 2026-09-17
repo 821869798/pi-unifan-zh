@@ -175,7 +175,7 @@ Turn your AI coding agent into a disciplined software engineer through an iterat
 ```
 
 - **Commands & Tools**:
-  - **`/workflow`**: Inspect current project stage, artifact counts, and recommended next skill.
+  - **`/workflow`**: Inspect current project stage, artifact counts, active autonomous driving loop progress, and recommended next skill.
   - **`workflow_state` tool**: Automatically scans `docs/` and `.context/checkpoints/` state.
   - **`artifact_helper` tool**: Resolves standardized artifact paths for requirements, plans, and solutions.
   - **`session_checkpoint` tool**: Saves and restores execution breakpoints at the Implementation Unit level — resume right from where you left off.
@@ -183,12 +183,24 @@ Turn your AI coding agent into a disciplined software engineer through an iterat
   - **`00-next` (Router & Orchestrator)**: Say `continue` or type `/skill:00-next`, and it automatically guides you to the right next step.
   - **`01-brainstorm` (Requirements Discovery)**: Clarifies scope and architecture decisions. **Pairs with `@juicesharp/rpiv-ask-user-question`** for flexible interactions: single-select (1-9 hotkeys) for mutually exclusive choices, multi-select checkboxes for feature lists, and custom text inputs.
   - **`02-plan` (Architecture Planning)**: Decomposes requirements into TDD Implementation Units following The Ladder minimalism principles.
-  - **`03-work` (TDD Coding & Execution)**: Red-Green-Refactor loop with automatic checkpointing and a strict Stop-The-Line policy on unexpected failures.
+  - **`03-work` (Autonomous Loop TDD Coding)** 🚀: **Built-in autonomous continuation engine similar to `goal`**. Directly invoking `/skill:03-work` starts a background cross-turn driver that sequentially executes Implementation Units with red-green-refactor, **never stopping until all planned units are 100% completed**! Supports checkpoint resumption and strict Stop-The-Line policy. Type `pause`, `stop`, or press `Esc` to pause anytime.
   - **`04-review` (Quality & Spec Review)**: Verifies git diff, checks Spec contract compliance, and ensures clean regression tests.
   - **`05-learn` (Knowledge Compounding)**: Lightweight, pragmatic pitfall compounding into `docs/solutions/` — zero noise, only non-trivial insights.
 - **Context Optimizers (Token Savers)**:
   - **`bash` smart filter**: Automatically summarizes verbose command outputs (`npm install`, verbose logs), saving 80%+ context tokens.
   - **`read` smart filter**: Compresses oversized lockfiles (e.g. `package-lock.json`) and long logs into compact structural summaries.
+
+### 🔄 How 03-work Autonomous Loop Works
+
+Traditional AI coding tools stop after each turn, asking for user confirmation before doing the next step. `03-work` natively integrates the `WorkLoopDriver` engine:
+1. **Lifecycle Event Hook**: Binds to Pi's `agent_settled` event to verify execution state immediately after each turn finishes.
+2. **Bi-directional Checkpoint Sync**: Re-reads `.context/checkpoints/` and the active plan to ensure in-memory and disk states match.
+3. **Autonomous Continuation**: If units remain, dispatches a follow-up turn (`deliverAs: "followUp"`), driving red-green-refactor cycles autonomously across turns until all units pass.
+4. **Safety Valves**:
+   - **Stop-The-Line**: Automatically pauses upon 3 consecutive failures on the same unit, preserving exact error context.
+   - **50-Turn Safety Threshold**: Prevents runaway looping.
+   - **Interactive Pause**: Hit `Esc` or type `pause` / `stop` anytime to safely suspend.
+5. **Auto-Handover**: Automatically cascades into `/skill:04-review` once all units are verified green.
 
 ---
 

@@ -35,16 +35,16 @@ pi install D:/program/my/pi-unifan-zh/extensions/workflow
 
 ## 🎮 使用方法
 
-在 Pi 中输入命令：
+在 Pi 中输入命令查看工作流看板：
 ```text
 /workflow
 ```
-可查看当前工作流阶段状态、已归档产物清单与断点恢复信息。
+可查看当前项目工作流阶段状态、已归档产物清单与 03-work 自主循环进度。
 
-配合全套技能使用：
-- `/skill:00-next`：智能进度分析与路由推荐
-- `/skill:01-brainstorm`：需求发现与边界澄清
-- `/skill:02-plan`：TDD 架构规划与 Implementation Units 拆解
-- `/skill:03-work`：严格 TDD 编码执行与断点持久化
-- `/skill:04-review`：全量代码审查与回归验证
-- `/skill:05-learn`：极简疑难避坑卡片沉淀
+### 6 大内置复合工程技能
+- **`/skill:00-next`**：智能进度分析与路由推荐
+- **`/skill:01-brainstorm`**：需求发现与边界澄清
+- **`/skill:02-plan`**：TDD 架构规划与 Implementation Units 拆解
+- **`/skill:03-work`** 🚀：**自主循环干活（不做完不停机）**。按计划顺序跨回合自动推进所有单元，完成全部规划前绝不停机，中途可随时输入“暂停”或按 Esc 挂起。
+- **`/skill:04-review`**：全量代码审查与回归验证
+- **`/skill:05-learn`**：极简疑难避坑卡片沉淀

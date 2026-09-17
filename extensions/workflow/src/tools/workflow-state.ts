@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readdir, stat, readFile } from "node:fs/promises";
 import type { CheckpointData } from "./session-checkpoint.js";
+import { parsePlanUnits, type PlanUnit } from "../driver/work-loop-driver.js";
 
 export interface ArtifactSummary {
 	filename: string;
@@ -22,6 +23,10 @@ export interface WorkflowStateResult {
 	latestPlan?: ArtifactSummary;
 	latestSolution?: ArtifactSummary;
 	activeCheckpoint?: CheckpointData;
+	totalUnitsCount?: number;
+	completedUnitsCount?: number;
+	remainingUnitsCount?: number;
+	nextUnitId?: string;
 }
 
 async function safeListMarkdownFiles(dir: string, relBase: string): Promise<ArtifactSummary[]> {
@@ -86,6 +91,23 @@ export async function detectWorkflowState(repoRoot: string): Promise<WorkflowSta
 	const hasArtifacts =
 		brainstorms.length > 0 || plans.length > 0 || solutions.length > 0 || checkpoints.length > 0;
 
+	// Parse units from latest plan if available
+	let totalUnits: PlanUnit[] = [];
+	if (latestPlan) {
+		try {
+			const planContent = await readFile(path.resolve(repoRoot, latestPlan.relativePath), "utf-8");
+			totalUnits = parsePlanUnits(planContent);
+		} catch {}
+	}
+
+	const completedSet = new Set(activeCheckpoint?.completedUnits ?? []);
+	const remainingUnits = totalUnits.filter((u) => !completedSet.has(u.id));
+	const hasUnfinishedUnits = totalUnits.length > 0 && remainingUnits.length > 0;
+	const isAllCompleted =
+		(totalUnits.length > 0 && remainingUnits.length === 0) ||
+		(totalUnits.length === 0 &&
+			Boolean(activeCheckpoint?.completedUnits && activeCheckpoint.completedUnits.length > 0));
+
 	// Decision engine for recommended next stage:
 	let stage: WorkflowStateResult["stage"] = "idle";
 	let recommendedSkill: WorkflowStateResult["recommendedSkill"] = "01-brainstorm";
@@ -100,33 +122,23 @@ export async function detectWorkflowState(repoRoot: string): Promise<WorkflowSta
 		stage = "brainstormed";
 		recommendedSkill = "02-plan";
 		recommendationReason = `发现最新需求文档「${latestBrainstorm.filename}」，尚未生成执行计划。建议运行 02-plan 拆解技术架构与 TDD Implementation Units。`;
-	} else if (activeCheckpoint && activeCheckpoint.failedUnit) {
-		stage = "working";
-		recommendedSkill = "03-work";
-		recommendationReason = `执行计划断点中记录了失败单元「${activeCheckpoint.failedUnit}」，建议运行 03-work 诊断根因并继续执行。`;
-	} else if (
-		activeCheckpoint &&
-		activeCheckpoint.completedUnits &&
-		activeCheckpoint.completedUnits.length > 0 &&
-		latestPlan &&
-		latestPlan.mtimeMs > (activeCheckpoint ? new Date(activeCheckpoint.updatedAt).getTime() : 0)
-	) {
-		// Plan was modified after checkpoint
-		stage = "planned";
-		recommendedSkill = "03-work";
-		recommendationReason = `计划文档「${latestPlan.filename}」有更新，建议运行 03-work 继续落实未完成的实现单元。`;
 	} else if (!activeCheckpoint && latestPlan) {
 		stage = "planned";
 		recommendedSkill = "03-work";
 		recommendationReason = `已生成计划文档「${latestPlan.filename}」，建议运行 03-work 启动 TDD 编码执行。`;
-	} else if (
-		activeCheckpoint &&
-		activeCheckpoint.completedUnits &&
-		activeCheckpoint.completedUnits.length > 0
-	) {
+	} else if (activeCheckpoint && activeCheckpoint.failedUnit) {
+		stage = "working";
+		recommendedSkill = "03-work";
+		recommendationReason = `执行计划断点中记录了失败单元「${activeCheckpoint.failedUnit}」，建议运行 03-work 诊断根因并继续执行。`;
+	} else if (hasUnfinishedUnits) {
+		stage = "working";
+		recommendedSkill = "03-work";
+		const completedCount = totalUnits.length - remainingUnits.length;
+		recommendationReason = `计划仍在进行中（进度 ${completedCount}/${totalUnits.length}，待办: ${remainingUnits[0].id}）。断点已保存，建议运行 03-work 继续从断点续跑。`;
+	} else if (isAllCompleted) {
 		stage = "working";
 		recommendedSkill = "04-review";
-		recommendationReason = `计划单元已完成执行（已完成 ${activeCheckpoint.completedUnits.length} 个单元）。建议运行 04-review 进行代码审查、规范校验与功能自测。`;
+		recommendationReason = `计划所有单元已全部执行完成（共 ${totalUnits.length} 个单元）。建议运行 04-review 进行代码审查、规范校验与功能自测。`;
 	} else {
 		stage = "completed";
 		recommendedSkill = "05-learn";
@@ -148,5 +160,9 @@ export async function detectWorkflowState(repoRoot: string): Promise<WorkflowSta
 		latestPlan,
 		latestSolution,
 		activeCheckpoint,
+		totalUnitsCount: totalUnits.length,
+		completedUnitsCount: totalUnits.length - remainingUnits.length,
+		remainingUnitsCount: remainingUnits.length,
+		nextUnitId: remainingUnits[0]?.id,
 	};
 }
