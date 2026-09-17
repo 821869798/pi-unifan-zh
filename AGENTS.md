@@ -30,13 +30,19 @@ pi-unifan-zh/
 │   │   │   ├── history-context.md # 历史上下文专家
 │   │   │   └── code-comments.md   # 注释检查专家
 │   │   └── package.json           # 独立子包: @unifan/pi-review-zh
-│   └── commit/                    # ③ 智能 Git 提交助手 (/commit, /commit-push)
-│       ├── index.ts               # 一键提交与推流命令
+│   ├── commit/                    # ③ 智能 Git 提交助手 (/commit, /commit-push)
+│   │   ├── index.ts               # 一键提交与推流命令
+│   │   ├── src/
+│   │   │   ├── git.ts             # Git 执行引擎 (含自动变基 pull --rebase)
+│   │   │   └── prompt.ts          # Conventional Commits 中文提示词
+│   │   └── package.json           # 独立子包: @unifan/pi-commit-zh
+│   └── workflow/                  # ④ 复合工程工作流引擎 (/workflow)
+│       ├── index.ts               # 工具与输出过滤器注册
 │       ├── src/
-│       │   ├── git.ts             # Git 执行引擎 (含自动变基 pull --rebase)
-│       │   └── prompt.ts          # Conventional Commits 中文提示词
-│       └── package.json           # 独立子包: @unifan/pi-commit-zh
-└── skills/                        # 内置专业技能集
+│       │   ├── tools/             # workflow_state, artifact_helper, session_checkpoint
+│       │   └── filters/           # bash_output_filter, read_output_filter
+│       └── package.json           # 独立子包: @unifan/pi-workflow-zh
+└── skills/                        # 内置专业技能集 (00-next ~ 05-learn)
 ```
 
 ---
@@ -128,7 +134,12 @@ cd D:\program\my\pi-unifan-zh\extensions\commit
 npm version patch
 npm publish --access public
 
-# 4. 提交版本号变更到 Git 远端
+# 4. 升级并发布 workflow 子包 (@unifan/pi-workflow-zh)（如有修改）
+cd D:\program\my\pi-unifan-zh\extensions\workflow
+npm version patch
+npm publish --access public
+
+# 5. 提交版本号变更到 Git 远端
 cd D:\program\my\pi-unifan-zh
 git add .
 git commit -m "chore(release): 升级版本号至 vX.Y.Z"

@@ -15,11 +15,18 @@ pi-unifan-zh/
 ├── AGENTS.md                 # 开发者与智能体规范指南
 ├── README.md                 # English Documentation
 ├── README_zh.md              # 中文说明文档
-├── extensions/               # 📦 独立插件集
+├── extensions/               # 📦 扩展插件集
 │   ├── sessions/             # 📜 ① 历史会话管理器（双栏实时预览与恢复·中文增强版）
 │   ├── review/               # 🔍 ② AI 代码审查套件（日常3专家 / 极速单兵 / 性能探针 / 全量会诊）
-│   └── commit/               # 📦 ③ 智能 Git 提交助手（Conventional Commits 纯中文规范版）
-└── skills/                   # 🎯 自定义技能库
+│   ├── commit/               # 📦 ③ 智能 Git 提交助手（Conventional Commits 纯中文规范版）
+│   └── workflow/             # 🔄 ④ 复合工程工作流引擎（状态感知 / 断点续跑 / 输出压缩）
+└── skills/                   # 🎯 复合工程流程技能库 (00-next ~ 05-learn)
+    ├── 00-next/              # 🚦 流程导航调度器（自动分析仓库产物并推荐下一步）
+    ├── 01-brainstorm/        # 💡 需求发现与交互对齐（单选/多选复选框/开放问答）
+    ├── 02-plan/              # 📐 TDD 架构规划与 Implementation Units 拆解
+    ├── 03-work/              # 🛠️ 严格 TDD 编码执行与断点持久化
+    ├── 04-review/            # 🧐 代码审查与回归测试闭环
+    └── 05-learn/             # 📝 极简避坑指南与经验复利沉淀
 ```
 
 ---
@@ -49,17 +56,37 @@ pi install D:/program/my/pi-unifan-zh
 
 #### 1. 仅安装 `sessions`（历史会话管理器·中文版）：
 ```bash
+# npm 在线安装
 pi install npm:@unifan/pi-sessions-zh
+# 或本地路径安装
+pi install D:/program/my/pi-unifan-zh/extensions/sessions
 ```
 
 #### 2. 仅安装 `review`（AI 代码审查系统·中文版）：
 ```bash
+# npm 在线安装
 pi install npm:@unifan/pi-review-zh
+# 或本地路径安装
+pi install D:/program/my/pi-unifan-zh/extensions/review
 ```
 
 #### 3. 仅安装 `commit`（智能 Git 提交助手·中文版）：
 ```bash
+# npm 在线安装
 pi install npm:@unifan/pi-commit-zh
+# 或本地路径安装
+pi install D:/program/my/pi-unifan-zh/extensions/commit
+```
+
+#### 4. 仅安装 `workflow`（复合工程工作流引擎·中文版）：
+```bash
+# npm 在线安装
+pi install npm:@unifan/pi-workflow-zh
+# 或本地路径安装
+pi install D:/program/my/pi-unifan-zh/extensions/workflow
+
+# 推荐搭配安装交互提问工具（支持现代终端多选复选框与单选）：
+pi install npm:@juicesharp/rpiv-ask-user-question
 ```
 
 ---
@@ -136,6 +163,39 @@ pi install npm:@unifan/pi-commit-zh
   - **智能自动变基（Auto Rebase）**：在 `/commit-push` 时，若远端有别人先提交的代码被拒绝，**自动在后台执行 `git pull --rebase` 变基并自动重试推送**，Git 历史保持一条干净直线！
   - **智能冲突引导**：变基遇冲突时列出冲突文件，提示严禁直接用 ours/theirs 覆盖，需按修改对比与上下文解决。
   - **未推送提交自动同步**：即使当前工作区干净，若检测到本地有尚未 push 的历史 Commit，`/commit-push` 也会自动将其推送至远端！
+
+---
+
+### 4. 🔄 `workflow` 与复合工程流 (Compound Engineering)
+本套件内嵌完整的 **Pi 原生复合工程流体系**，将 AI 辅助编程从“随性写代码”升级为“严格的工程流水线”：
+
+```text
+00-next  ──>  01-brainstorm  ──>  02-plan  ──>  03-work  ──>  04-review  ──>  05-learn
+ (智能调度)       (需求澄清)       (TDD计划)      (断点编码)      (质量审查)     (极简复盘)
+```
+
+- **核心命令与工具**：
+  - **`/workflow`**：快速在终端查看当前项目工作流阶段、各产物数量与下一步推荐技能。
+  - **`workflow_state`** 工具：自动扫描 `docs/` 与 `.context/checkpoints/` 状态。
+  - **`artifact_helper`** 工具：规范化解析和建立需求、计划与避坑文档。
+  - **`session_checkpoint`** 工具：以 Implementation Unit 为粒度记录执行断点，**写一半中断后再次启动自动从断点续跑，绝不重头重来**。
+- **6 大内置流程技能**：
+  - **`00-next`（智能路标）**：用户随口说 `continue`、`下一步` 或输入 `/skill:00-next`，自动探查当前进度并无缝引导至下一个环节。
+  - **`01-brainstorm`（需求发现）**：引导需求澄清，**灵活调用 `@juicesharp/rpiv-ask-user-question`**：互斥方案用单选（1-9直选）、模块清单用多选复选框、开放问题自由输入，自然对齐技术方案。
+  - **`02-plan`（计划拆解）**：将需求拆解为包含验证命令与改动清单的 Implementation Units，坚持极简阶梯（The Ladder）原则。
+  - **`03-work`（TDD 编码执行）**：按单元循环推进入“红-绿-重构”，支持断点保存与遇错即停（Stop-the-line）硬门禁。
+  - **`04-review`（审查闭环）**：全量代码审查、Spec 需求符合度核验、回归测试绿灯检查。
+  - **`05-learn`（极简知识复盘）**：价值门禁驱动，仅沉淀非平凡的疑难避坑卡片至 `docs/solutions/`，坚决不制造文档噪音。
+- **内置上下文优化黑科技 (Token Saver)**：
+  - **`bash` 输出智能过滤器**：自动压缩长终端命令输出（如 `npm install`、长日志），保留首尾关键行，节省 80%+ 上下文 Token！
+  - **`read` 输出智能过滤器**：智能压缩 `package-lock.json` 等超大文件，只保留版本和依赖概览。
+
+---
+
+## 💡 致谢与参考 (Acknowledgments)
+
+本扩展库中的复合工程工作流（Compound Engineering）模块深度参考并借鉴了以下优秀开源项目的架构思想：
+- **[`@leing2021/super-pi`](https://github.com/leing2021/super-pi)**：特别致谢 `super-pi` 项目对复合工程流流水线、断点续传（Checkpoints）与产物治理模式的探索与启发。本项目在汲取其精髓的基础上，全面重构了终端交互体验，解除了只能单选的限制，引入了 **`00-next` 智能调度导航**、**极简避坑复盘 `05-learn`**，并深度打通了 **`@juicesharp/rpiv-ask-user-question`** 的现代多选复选框终端交互体系。
 
 ---
 

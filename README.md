@@ -17,11 +17,18 @@ pi-unifan-zh/
 ├── AGENTS.md                 # Developer and AI agent guidelines
 ├── README.md                 # English Documentation
 ├── README_zh.md              # Chinese Documentation
-├── extensions/               # 📦 Individual Extension Packages
+├── extensions/               # 📦 Extension Packages
 │   ├── sessions/             # 📜 ① Dual-pane session manager with live preview (Chinese)
 │   ├── review/               # 🔍 ② AI multi-agent code review suite (Daily/Lite/Perf/Full)
-│   └── commit/               # 📦 ③ Intelligent Conventional Commits assistant (Chinese)
-└── skills/                   # 🎯 Custom prompt skills library
+│   ├── commit/               # 📦 ③ Intelligent Conventional Commits assistant (Chinese)
+│   └── workflow/             # 🔄 ④ Compound Engineering Workflow engine (State/Checkpoints/Filters)
+└── skills/                   # 🎯 Compound Engineering Skills (00-next ~ 05-learn)
+    ├── 00-next/              # 🚦 Router & orchestrator (inspects repo state, recommends next step)
+    ├── 01-brainstorm/        # 💡 Discovery & flexible interactions (single/multi-select/custom text)
+    ├── 02-plan/              # 📐 TDD architecture planning & Implementation Units
+    ├── 03-work/              # 🛠️ Strict TDD coding execution & checkpoint resume
+    ├── 04-review/            # 🧐 Code review, spec verification & regression testing
+    └── 05-learn/             # 📝 Lightweight solution cards & knowledge compounding
 ```
 
 ---
@@ -51,17 +58,37 @@ pi install D:/program/my/pi-unifan-zh
 
 #### 1. Install `sessions` (Session Manager with TUI Preview):
 ```bash
+# Via npm
 pi install npm:@unifan/pi-sessions-zh
+# Or via local path
+pi install D:/program/my/pi-unifan-zh/extensions/sessions
 ```
 
 #### 2. Install `review` (AI Parallel Code Review Suite):
 ```bash
+# Via npm
 pi install npm:@unifan/pi-review-zh
+# Or via local path
+pi install D:/program/my/pi-unifan-zh/extensions/review
 ```
 
 #### 3. Install `commit` (Intelligent Git Commit Assistant):
 ```bash
+# Via npm
 pi install npm:@unifan/pi-commit-zh
+# Or via local path
+pi install D:/program/my/pi-unifan-zh/extensions/commit
+```
+
+#### 4. Install `workflow` (Compound Engineering Engine):
+```bash
+# Via npm
+pi install npm:@unifan/pi-workflow-zh
+# Or via local path
+pi install D:/program/my/pi-unifan-zh/extensions/workflow
+
+# Recommended peer question UI extension:
+pi install npm:@juicesharp/rpiv-ask-user-question
 ```
 
 ---
@@ -131,6 +158,39 @@ pi install npm:@unifan/pi-commit-zh
   - **Smart Auto-Rebase on Push**: In `/commit-push`, if remote contains unpulled commits, it automatically runs `git pull --rebase` and retries push, keeping a clean linear git history.
   - **Smart Conflict Guidance**: If rebase conflicts occur, lists conflict files and enforces resolving by diff and context (never blindly using ours/theirs).
   - **Unpushed Commits Sync**: Automatically pushes unpushed local commits even if the working tree is clean.
+
+---
+
+### 4. 🔄 `workflow` & Compound Engineering Workflow Suite
+Turn your AI coding agent into a disciplined software engineer through an iterative stage-gated pipeline:
+
+```text
+00-next  ──>  01-brainstorm  ──>  02-plan  ──>  03-work  ──>  04-review  ──>  05-learn
+ (Router)        (Discovery)      (TDD Plan)    (Execution)      (Review)      (Compounding)
+```
+
+- **Commands & Tools**:
+  - **`/workflow`**: Inspect current project stage, artifact counts, and recommended next skill.
+  - **`workflow_state` tool**: Automatically scans `docs/` and `.context/checkpoints/` state.
+  - **`artifact_helper` tool**: Resolves standardized artifact paths for requirements, plans, and solutions.
+  - **`session_checkpoint` tool**: Saves and restores execution breakpoints at the Implementation Unit level — resume right from where you left off.
+- **6 Built-in Pipeline Skills**:
+  - **`00-next` (Router & Orchestrator)**: Say `continue` or type `/skill:00-next`, and it automatically guides you to the right next step.
+  - **`01-brainstorm` (Requirements Discovery)**: Clarifies scope and architecture decisions. **Pairs with `@juicesharp/rpiv-ask-user-question`** for flexible interactions: single-select (1-9 hotkeys) for mutually exclusive choices, multi-select checkboxes for feature lists, and custom text inputs.
+  - **`02-plan` (Architecture Planning)**: Decomposes requirements into TDD Implementation Units following The Ladder minimalism principles.
+  - **`03-work` (TDD Coding & Execution)**: Red-Green-Refactor loop with automatic checkpointing and a strict Stop-The-Line policy on unexpected failures.
+  - **`04-review` (Quality & Spec Review)**: Verifies git diff, checks Spec contract compliance, and ensures clean regression tests.
+  - **`05-learn` (Knowledge Compounding)**: Lightweight, pragmatic pitfall compounding into `docs/solutions/` — zero noise, only non-trivial insights.
+- **Context Optimizers (Token Savers)**:
+  - **`bash` smart filter**: Automatically summarizes verbose command outputs (`npm install`, verbose logs), saving 80%+ context tokens.
+  - **`read` smart filter**: Compresses oversized lockfiles (e.g. `package-lock.json`) and long logs into compact structural summaries.
+
+---
+
+## 💡 Acknowledgments & References
+
+The Compound Engineering workflow pipeline in this repository draws deep architectural inspiration and reference from:
+- **[`@leing2021/super-pi`](https://github.com/leing2021/super-pi)**: Special thanks to `super-pi` for its pioneering design of Pi-native Compound Engineering pipelines, checkpoint resumes, and artifact management patterns. In this project, we re-architected the terminal interaction to unlock multi-select capabilities, introduced the **`00-next` router**, streamlined **`05-learn`**, and fully integrated **`@juicesharp/rpiv-ask-user-question`** for rich terminal UI dialogs.
 
 ---
 

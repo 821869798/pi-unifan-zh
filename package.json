@@ -11,13 +11,16 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:commit": "node --test extensions/commit/tests/commit.test.mjs",
-    "test:review": "node --test extensions/review/tests/orchestration.test.mjs"
+    "test:review": "node --test extensions/review/tests/orchestration.test.mjs",
+    "test:workflow": "node --test extensions/workflow/tests/workflow.test.mjs",
+    "test": "node --test extensions/commit/tests/commit.test.mjs extensions/review/tests/orchestration.test.mjs extensions/workflow/tests/workflow.test.mjs"
   },
   "pi": {
     "extensions": [
       "./extensions/sessions/index.ts",
       "./extensions/review/index.ts",
-      "./extensions/commit/index.ts"
+      "./extensions/commit/index.ts",
+      "./extensions/workflow/index.ts"
     ],
     "subagents": {
       "agents": [
@@ -34,10 +37,21 @@
     "chinese",
     "sessions",
     "review",
+    "commit",
+    "workflow",
+    "compound-engineering",
     "tui"
   ],
   "author": "unifan",
   "license": "MIT",
+  "peerDependencies": {
+    "@juicesharp/rpiv-ask-user-question": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@juicesharp/rpiv-ask-user-question": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.84.4",
     "@earendil-works/pi-coding-agent": "^0.84.4",

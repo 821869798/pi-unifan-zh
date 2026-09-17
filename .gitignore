@@ -4,4 +4,5 @@ dist/
 .DS_Store
 *.tmp
 *.raw.ts
+.tmp*
 

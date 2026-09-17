@@ -1,0 +1,37 @@
+{
+  "name": "@unifan/pi-workflow-zh",
+  "version": "1.0.0",
+  "description": "Pi 复合工程工作流引擎（状态感知 / 断点续跑 / 输出压缩 / 自动化工具集）",
+  "type": "module",
+  "main": "index.ts",
+  "author": "821869798",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/821869798/pi-unifan-zh.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "workflow",
+    "compound-engineering",
+    "checkpoints",
+    "chinese"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.74.0 <1.0.0",
+    "@earendil-works/pi-coding-agent": ">=0.74.0 <1.0.0",
+    "@juicesharp/rpiv-ask-user-question": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@juicesharp/rpiv-ask-user-question": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
