@@ -387,33 +387,15 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	const WORKFLOW_SHORTCUTS: Record<string, string> = {
-		"00": "00-next",
-		"/00": "00-next",
-		"01": "01-brainstorm",
-		"/01": "01-brainstorm",
-		"02": "02-plan",
-		"/02": "02-plan",
-		"03": "03-work",
-		"/03": "03-work",
-		"04": "04-review",
-		"/04": "04-review",
-		"05": "05-learn",
-		"/05": "05-learn",
-	};
-
-	// 监听用户打断指令与极简快捷指令（如输入 01 自动转为 /skill:01-brainstorm）
+	// 监听用户打断指令：用户若输入“暂停”或“停止”，自动安全挂起 03 自主循环
 	pi.on("input", async (event, ctx) => {
 		if (event.source === "extension") return { action: "continue" };
 
-		const raw = event.text.trim();
-		const lower = raw.toLowerCase();
-
-		// 1. 暂停/打断指令：用户若输入“暂停”或“停止”，自动安全挂起 03 自主循环
+		const text = event.text.trim().toLowerCase();
 		if (
 			workDriverInstance &&
 			workDriverInstance.getStatus().isActive &&
-			(lower === "暂停" || lower === "停止" || lower === "pause" || lower === "stop")
+			(text === "暂停" || text === "停止" || text === "pause" || text === "stop")
 		) {
 			detachEscapeListener();
 			await workDriverInstance.pause("用户手动输入暂停");
@@ -423,23 +405,6 @@ export default function workflowExtension(pi: ExtensionAPI) {
 				"info",
 			);
 			return { action: "handled" };
-		}
-
-		// 2. 阶段编号快捷直达：输入 00~05 自动转换为 /skill:0x-xxx
-		const match = raw.match(/^(\/?0[0-5])(?:\s+(.*))?$/);
-		if (match) {
-			const shortcutKey = match[1];
-			const skillName = WORKFLOW_SHORTCUTS[shortcutKey];
-			if (skillName) {
-				// 若当前正在 03 自主干活中，切换阶段时先优雅暂停 03
-				if (skillName !== "03-work" && workDriverInstance && workDriverInstance.getStatus().isActive) {
-					detachEscapeListener();
-					await workDriverInstance.pause(`用户通过快捷键切换至 ${skillName}`);
-					ctx.ui?.setStatus?.("workflow", undefined);
-				}
-				const rest = match[2] ? ` ${match[2]}` : "";
-				return { action: "transform", text: `/skill:${skillName}${rest}` };
-			}
 		}
 
 		return { action: "continue" };

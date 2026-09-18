@@ -10,15 +10,13 @@ export function isExplicit03WorkTrigger(prompt: string): boolean {
 	// 1. Direct skill invocation or slash command
 	if (
 		lower.startsWith("/skill:03-work") ||
-		lower === "/skill:03" ||
-		lower.startsWith("03-work")
+		lower === "/skill:03"
 	) {
 		return true;
 	}
 
 	// 2. Strict keywords and natural language commands to start/resume 03 work
 	const strictPatterns = [
-		/^(\/)?(03|03-work)$/i,
 		/^开始(03|干活|编码|实现|写代码)/,
 		/^执行(03|03-work|干活)/,
 		/^自主(干活|工作|编码)/,

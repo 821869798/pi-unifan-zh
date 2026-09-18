@@ -290,16 +290,10 @@ test("workflowExtension: registers tools and command cleanly", async () => {
 	assert.ok(listeners.has("input"));
 	assert.ok(listeners.has("agent_settled"));
 
-	// Verify 00~05 shortcut transforms
+	// Verify input handler passes through standard inputs and handles pause
 	const inputHandler = listeners.get("input");
-	const res01 = await inputHandler({ text: "01", source: "interactive" }, {});
-	assert.deepEqual(res01, { action: "transform", text: "/skill:01-brainstorm" });
-
-	const res01WithText = await inputHandler({ text: "01 补充需求边界", source: "interactive" }, {});
-	assert.deepEqual(res01WithText, { action: "transform", text: "/skill:01-brainstorm 补充需求边界" });
-
-	const res00 = await inputHandler({ text: "00", source: "interactive" }, {});
-	assert.deepEqual(res00, { action: "transform", text: "/skill:00-next" });
+	const resPassThrough = await inputHandler({ text: "/skill:01-brainstorm", source: "interactive" }, {});
+	assert.deepEqual(resPassThrough, { action: "continue" });
 
 	const resNormal = await inputHandler({ text: "1. 选第一个方案", source: "interactive" }, {});
 	assert.deepEqual(resNormal, { action: "continue" });
@@ -480,10 +474,6 @@ test("isExplicit03WorkTrigger: accurately identifies 03-work invocations vs harm
 	// Should match explicit 03 triggers
 	assert.equal(isExplicit03WorkTrigger("/skill:03-work"), true);
 	assert.equal(isExplicit03WorkTrigger("/skill:03"), true);
-	assert.equal(isExplicit03WorkTrigger("03-work"), true);
-	assert.equal(isExplicit03WorkTrigger("03-work docs/plans/plan.md"), true);
-	assert.equal(isExplicit03WorkTrigger("03"), true);
-	assert.equal(isExplicit03WorkTrigger("/03"), true);
 	assert.equal(isExplicit03WorkTrigger("开始干活"), true);
 	assert.equal(isExplicit03WorkTrigger("开始03"), true);
 	assert.equal(isExplicit03WorkTrigger("开始实现"), true);
@@ -492,6 +482,10 @@ test("isExplicit03WorkTrigger: accurately identifies 03-work invocations vs harm
 	assert.equal(isExplicit03WorkTrigger("恢复干活"), true);
 	assert.equal(isExplicit03WorkTrigger("resume work"), true);
 	assert.equal(isExplicit03WorkTrigger("【03-work 自主循环驱动引擎 · 自动化续跑指令】"), true);
+
+	// Plain numbers must NEVER trigger (must require /skill: or explicit phrase)
+	assert.equal(isExplicit03WorkTrigger("03"), false);
+	assert.equal(isExplicit03WorkTrigger("/03"), false);
 
 	// Must NEVER match other skills or normal dialogue (prevents false auto-starts!)
 	assert.equal(isExplicit03WorkTrigger("00"), false);
@@ -683,37 +677,22 @@ test("E2E Lifecycle: 01 brainstorm -> 02 plan -> 01 rollback -> 03 work -> compa
 	assert.equal(state.recommendedSkill, "03-work");
 	assert.equal(state.totalUnitsCount, 3);
 
-	// 4. User is in 02, realizes requirements need changes -> Rolls back to 01!
-	// (Simulate input event transform)
-	const listeners = new Map();
-	const mockPi = {
-		registerTool() {},
-		registerCommand() {},
-		on(event, handler) {
-			listeners.set(event, handler);
-		},
-	};
-	workflowExtension(mockPi);
-	const inputHandler = listeners.get("input");
-
-	// User types "01 增加第三方登录"
-	const transformRes = await inputHandler({ text: "01 增加第三方登录", source: "interactive" }, {});
-	assert.deepEqual(transformRes, {
-		action: "transform",
-		text: "/skill:01-brainstorm 增加第三方登录",
-	});
-
-	// User updates brainstorm file
+	// 4. User is in 02, realizes requirements need changes -> Rolls back to 01 via /skill:01-brainstorm
+	// In standard Pi, user runs /skill:01-brainstorm to revisit requirements
 	await writeFile(bsFile, "# Auth Requirements\nScope: login, register, oauth2", "utf-8");
 
-	// 5. User returns to 02
-	const returnTo02 = await inputHandler({ text: "02", source: "interactive" }, {});
-	assert.deepEqual(returnTo02, {
-		action: "transform",
-		text: "/skill:02-plan",
-	});
+	// 5. User returns to 02 via /skill:02-plan and updates the plan
+	await writeFile(
+		planFile,
+		"# Auth Plan\n### Unit 0 — DB Schema\n### Unit 1 — API Route & OAuth2\n### Unit 2 — Tests",
+		"utf-8",
+	);
 
-	// 6. User enters 03 -> starts autonomous work
+	state = await detectWorkflowState(testRoot);
+	assert.equal(state.recommendedSkill, "03-work");
+
+	// 6. User enters 03 -> starts autonomous work via /skill:03-work
+	assert.equal(isExplicit03WorkTrigger("/skill:03-work"), true);
 	const driver = new WorkLoopDriver(testRoot);
 	const startRes = await driver.start(planFile);
 	assert.equal(startRes.success, true);

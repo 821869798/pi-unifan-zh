@@ -1,6 +1,6 @@
 {
   "name": "@unifan/pi-workflow-zh",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Pi 复合工程工作流引擎（状态感知 / 断点续跑 / 输出压缩 / 自动化工具集）",
   "type": "module",
   "main": "index.ts",
