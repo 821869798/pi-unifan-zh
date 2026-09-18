@@ -1,52 +1,104 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { resolveArtifactPath, type ArtifactType } from "./src/tools/artifact-helper.js";
-import { detectWorkflowState } from "./src/tools/workflow-state.js";
-import { executeSessionCheckpoint } from "./src/tools/session-checkpoint.js";
+import type { ArtifactType } from "./src/tools/artifact-helper.js";
+import type { WorkLoopDriver } from "./src/driver/work-loop-driver.js";
 import { filterBashOutput } from "./src/filters/bash-output-filter.js";
 import { filterReadOutput } from "./src/filters/read-output-filter.js";
-import { WorkLoopDriver } from "./src/driver/work-loop-driver.js";
 
-const workflowStateParams = Type.Object({
-	repoRoot: Type.String({ description: "Repository root path to scan for workflow artifacts" }),
-});
+let workDriverInstance: WorkLoopDriver | null = null;
+async function getWorkDriver(): Promise<WorkLoopDriver> {
+	if (!workDriverInstance) {
+		const { WorkLoopDriver: DriverClass } = await import("./src/driver/work-loop-driver.js");
+		workDriverInstance = new DriverClass();
+	}
+	return workDriverInstance;
+}
 
-const artifactHelperParams = Type.Object({
-	repoRoot: Type.String({ description: "Repository root where workflow artifacts are stored" }),
-	artifactType: Type.Union(
-		[
-			Type.Literal("brainstorm"),
-			Type.Literal("plan"),
-			Type.Literal("solution"),
-			Type.Literal("checkpoint"),
-		],
-		{ description: "Target artifact category" },
-	),
-	topic: Type.Optional(Type.String({ description: "Topic or feature name for the artifact" })),
-	date: Type.Optional(Type.String({ description: "Date prefix formatted as YYYY-MM-DD" })),
-	ensureDir: Type.Optional(Type.Boolean({ description: "Whether to create directory if missing" })),
-});
+const workflowStateParams = {
+	type: "object",
+	required: ["repoRoot"],
+	properties: {
+		repoRoot: {
+			type: "string",
+			description: "Repository root path to scan for workflow artifacts",
+		},
+	},
+} as any;
 
-const sessionCheckpointParams = Type.Object({
-	operation: Type.Union(
-		[
-			Type.Literal("save"),
-			Type.Literal("load"),
-			Type.Literal("list"),
-			Type.Literal("fail"),
-			Type.Literal("retry"),
-		],
-		{ description: "Checkpoint action to execute" },
-	),
-	repoRoot: Type.String({ description: "Repository root path" }),
-	planPath: Type.Optional(Type.String({ description: "Path to the plan markdown artifact" })),
-	planSlug: Type.Optional(Type.String({ description: "Slug identifier for the execution plan" })),
-	completedUnits: Type.Optional(
-		Type.Array(Type.String(), { description: "List of completed unit names" }),
-	),
-	failedUnit: Type.Optional(Type.String({ description: "Unit name that encountered a failure" })),
-	error: Type.Optional(Type.String({ description: "Error description or failure details" })),
-});
+const artifactHelperParams = {
+	type: "object",
+	required: ["repoRoot", "artifactType"],
+	properties: {
+		repoRoot: {
+			type: "string",
+			description: "Repository root where workflow artifacts are stored",
+		},
+		artifactType: {
+			anyOf: [
+				{ type: "string", const: "brainstorm" },
+				{ type: "string", const: "plan" },
+				{ type: "string", const: "solution" },
+				{ type: "string", const: "checkpoint" },
+			],
+			description: "Target artifact category",
+		},
+		topic: {
+			type: "string",
+			description: "Topic or feature name for the artifact",
+		},
+		date: {
+			type: "string",
+			description: "Date prefix formatted as YYYY-MM-DD",
+		},
+		ensureDir: {
+			type: "boolean",
+			description: "Whether to create directory if missing",
+		},
+	},
+} as any;
+
+const sessionCheckpointParams = {
+	type: "object",
+	required: ["operation", "repoRoot"],
+	properties: {
+		operation: {
+			anyOf: [
+				{ type: "string", const: "save" },
+				{ type: "string", const: "load" },
+				{ type: "string", const: "list" },
+				{ type: "string", const: "fail" },
+				{ type: "string", const: "retry" },
+			],
+			description: "Checkpoint action to execute",
+		},
+		repoRoot: {
+			type: "string",
+			description: "Repository root path",
+		},
+		planPath: {
+			type: "string",
+			description: "Path to the plan markdown artifact",
+		},
+		planSlug: {
+			type: "string",
+			description: "Slug identifier for the execution plan",
+		},
+		completedUnits: {
+			type: "array",
+			items: {
+				type: "string",
+			},
+			description: "List of completed unit names",
+		},
+		failedUnit: {
+			type: "string",
+			description: "Unit name that encountered a failure",
+		},
+		error: {
+			type: "string",
+			description: "Error description or failure details",
+		},
+	},
+} as any;
 
 export default function workflowExtension(pi: ExtensionAPI) {
 	// 1. Register workflow_state tool (Core engine for 00-next)
@@ -56,7 +108,8 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		description:
 			"Scan repository artifacts (brainstorms, plans, checkpoints, solutions) and determine current stage and recommended next skill.",
 		parameters: workflowStateParams,
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params: any) {
+			const { detectWorkflowState } = await import("./src/tools/workflow-state.js");
 			const result = await detectWorkflowState(params.repoRoot);
 			return {
 				content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -72,7 +125,8 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		description:
 			"Resolve and optionally create standard Compound Engineering artifact paths under docs/ or .context/.",
 		parameters: artifactHelperParams,
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params: any) {
+			const { resolveArtifactPath } = await import("./src/tools/artifact-helper.js");
 			const result = await resolveArtifactPath({
 				repoRoot: params.repoRoot,
 				artifactType: params.artifactType as ArtifactType,
@@ -94,7 +148,8 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		description:
 			"Manage plan execution checkpoints: save completed units, load breakpoints, record errors, and retry failed units.",
 		parameters: sessionCheckpointParams,
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params: any) {
+			const { executeSessionCheckpoint } = await import("./src/tools/session-checkpoint.js");
 			const result = await executeSessionCheckpoint({
 				operation: params.operation,
 				repoRoot: params.repoRoot,
@@ -189,8 +244,10 @@ export default function workflowExtension(pi: ExtensionAPI) {
 	pi.registerCommand("workflow", {
 		description: "查看当前项目的复合工程流状态与下一步推荐技能",
 		async handler(_args, ctx) {
+			const { detectWorkflowState } = await import("./src/tools/workflow-state.js");
 			const repoRoot = ctx.cwd || process.cwd();
 			const state = await detectWorkflowState(repoRoot);
+			const workDriver = await getWorkDriver();
 			const workStatus = workDriver.getStatus();
 
 			const msg = [
@@ -218,8 +275,6 @@ export default function workflowExtension(pi: ExtensionAPI) {
 	});
 
 	// 7. 03-work 原生自主循环驱动引擎 (无须额外命令，直接在 03-work 中原生生效)
-	const workDriver = new WorkLoopDriver();
-
 	// 监听用户输入与技能启动：当调用 03-work 或请求恢复执行时，自动启动自主循环驱动
 	pi.on("before_agent_start", async (event, ctx) => {
 		const promptLower = event.prompt.toLowerCase();
@@ -233,7 +288,8 @@ export default function workflowExtension(pi: ExtensionAPI) {
 					promptLower.includes("resume") ||
 					promptLower.includes("干活")));
 
-		if (is03Work && !workDriver.getStatus().isActive) {
+		if (is03Work && (!workDriverInstance || !workDriverInstance.getStatus().isActive)) {
+			const workDriver = await getWorkDriver();
 			workDriver.setRepoRoot(ctx.cwd || process.cwd());
 			const res = await workDriver.start();
 			if (res.success && res.status.isActive) {
@@ -250,10 +306,11 @@ export default function workflowExtension(pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		const text = event.text.trim().toLowerCase();
 		if (
-			workDriver.getStatus().isActive &&
+			workDriverInstance &&
+			workDriverInstance.getStatus().isActive &&
 			(text === "暂停" || text === "停止" || text === "pause" || text === "stop")
 		) {
-			await workDriver.pause("用户手动输入暂停");
+			await workDriverInstance.pause("用户手动输入暂停");
 			ctx.ui?.setStatus?.("workflow", undefined);
 			ctx.ui?.notify?.(
 				"⏸️ 03-work 自主循环已暂停。随时输入“继续”或调用 /skill:03-work 即可恢复。",
@@ -266,10 +323,12 @@ export default function workflowExtension(pi: ExtensionAPI) {
 
 	// 核心事件循环：每个回合结束后，若仍有未完成单元，自动注入下一回合实现“不做完不停机”
 	pi.on("agent_settled", async (_event, ctx) => {
-		await workDriver.onAgentSettled(ctx, pi);
+		if (workDriverInstance && workDriverInstance.getStatus().isActive) {
+			await workDriverInstance.onAgentSettled(ctx, pi);
+		}
 	});
 
 	pi.on("session_shutdown", async () => {
-		workDriver.cancelTimer();
+		workDriverInstance?.cancelTimer();
 	});
 }
