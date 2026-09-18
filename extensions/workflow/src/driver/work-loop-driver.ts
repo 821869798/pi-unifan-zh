@@ -95,6 +95,8 @@ export async function findLatestPlanFile(repoRoot: string): Promise<string | nul
 	}
 }
 
+export { isExplicit03WorkTrigger } from "./trigger-matcher.js";
+
 /**
  * Autonomous Loop Driver for 03-work.
  * Ensures the agent drives continuously across turns until all planned units are 100% finished.
@@ -282,12 +284,28 @@ export class WorkLoopDriver {
 	async onAgentSettled(ctx: ExtensionContext, pi: ExtensionAPI): Promise<void> {
 		if (!this.isActive || !this.planPath) return;
 
-		// 1. Check if user aborted (Esc pressed or abort signal)
+		// 1. Check if user aborted (Esc pressed, abort signal, or aborted assistant message)
 		if (ctx.signal?.aborted) {
 			await this.pause("检测到用户中断信号 (Esc/Abort)");
+			ctx.ui?.setStatus?.("workflow", undefined);
 			ctx.ui?.notify?.("⏸️ 03-work 自主循环已响应中断信号安全暂停。", "info");
 			return;
 		}
+
+		try {
+			const branch = ctx.sessionManager?.getBranch?.() ?? [];
+			const lastMsgEntry = branch
+				.slice()
+				.reverse()
+				.find((e: any) => e?.type === "message" && e?.message?.role === "assistant");
+			const lastAssistantMsg = (lastMsgEntry as any)?.message;
+			if (lastAssistantMsg?.stopReason === "aborted") {
+				await this.pause("检测到会话中断 (stopReason: aborted)");
+				ctx.ui?.setStatus?.("workflow", undefined);
+				ctx.ui?.notify?.("⏸️ 03-work 自主循环已响应中断信号安全暂停。", "info");
+				return;
+			}
+		} catch {}
 
 		// 2. Re-read checkpoint from disk to see what the agent achieved in this turn
 		const cpResult = await executeSessionCheckpoint({

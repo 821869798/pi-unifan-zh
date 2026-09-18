@@ -1,8 +1,7 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ArtifactType } from "./src/tools/artifact-helper.js";
 import type { WorkLoopDriver } from "./src/driver/work-loop-driver.js";
-import { filterBashOutput } from "./src/filters/bash-output-filter.js";
-import { filterReadOutput } from "./src/filters/read-output-filter.js";
+import { isExplicit03WorkTrigger } from "./src/driver/trigger-matcher.js";
 
 let workDriverInstance: WorkLoopDriver | null = null;
 async function getWorkDriver(): Promise<WorkLoopDriver> {
@@ -180,6 +179,7 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		if (textBlocks.length === 0) return undefined;
 
 		const output = textBlocks.map((b) => b.text ?? "").join("");
+		const { filterBashOutput } = await import("./src/filters/bash-output-filter.js");
 		const result = filterBashOutput({
 			command,
 			output,
@@ -218,6 +218,7 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		const isImage =
 			(event.content as Array<{ type: string }>)?.some((b) => b.type === "image") ?? false;
 
+		const { filterReadOutput } = await import("./src/filters/read-output-filter.js");
 		const result = filterReadOutput({
 			path: filePath,
 			output,
@@ -240,59 +241,143 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		};
 	});
 
-	// 6. User Command: /workflow (查看工作流总览与 03-work 自主循环状态)
+	// 6. User Command: /workflow (查看工作流全阶段看板与自主循环控制)
 	pi.registerCommand("workflow", {
-		description: "查看当前项目的复合工程流状态与下一步推荐技能",
-		async handler(_args, ctx) {
+		description: "查看复合工程工作流全流程步骤状态看板与自主干活循环控制",
+		async handler(args, ctx) {
+			const sub = (args || "").trim().toLowerCase();
+			const workDriver = await getWorkDriver();
+
+			if (sub === "pause" || sub === "暂停") {
+				if (workDriver.getStatus().isActive) {
+					detachEscapeListener();
+					await workDriver.pause("用户执行 /workflow pause");
+					ctx.ui?.setStatus?.("workflow", undefined);
+					ctx.ui?.notify?.("⏸️ 03-work 自主循环已安全暂停。", "info");
+				} else {
+					ctx.ui?.notify?.("⚪ 03-work 当前未处于活跃运行状态。", "info");
+				}
+				return;
+			}
+
+			if (sub === "resume" || sub === "继续") {
+				workDriver.setRepoRoot(ctx.cwd || process.cwd());
+				const res = await workDriver.start();
+				if (res.success && res.status.isActive) {
+					attachEscapeListener(ctx);
+					ctx.ui?.setStatus?.(
+						"workflow",
+						`🔄 03-work 自主干活 [${res.status.completedUnits.length}/${res.status.allUnits.length}]`,
+					);
+					ctx.ui?.notify?.("🚀 03-work 自主循环已恢复驱动。", "info");
+				} else {
+					ctx.ui?.notify?.(res.message, "info");
+				}
+				return;
+			}
+
+			if (sub === "hide" || sub === "off" || sub === "close" || sub === "关闭" || sub === "隐藏") {
+				ctx.ui?.setWidget?.("workflow", undefined);
+				ctx.ui?.setStatus?.("workflow", undefined);
+				ctx.ui?.notify?.("工作流状态栏已隐藏。", "info");
+				return;
+			}
+
 			const { detectWorkflowState } = await import("./src/tools/workflow-state.js");
+			const { buildWorkflowDashboard, buildWorkflowWidgetLines } = await import(
+				"./src/tools/workflow-dashboard.js"
+			);
 			const repoRoot = ctx.cwd || process.cwd();
 			const state = await detectWorkflowState(repoRoot);
-			const workDriver = await getWorkDriver();
 			const workStatus = workDriver.getStatus();
 
-			const msg = [
-				`🎯 **复合工程工作流状态 (Compound Engineering)**`,
-				`📁 仓库路径: \`${state.repoRoot}\``,
-				`📊 当前阶段: **${state.stage.toUpperCase()}**`,
-				`🚀 推荐下一步: \`/skill:${state.recommendedSkill}\``,
-				`💡 理由: ${state.recommendationReason}`,
-				``,
-				workStatus.isActive
-					? `⚡ **03-work 自主循环运行中**: [${workStatus.completedUnits.length}/${workStatus.allUnits.length}] 当前推进: **${workStatus.currentUnit || "全部完成"}**`
-					: `⚡ **03-work 自主循环状态**: ⚪ 空闲（调用 /skill:03-work 即可自动循环驱动）`,
-				``,
-				`📋 **产物概览**:`,
-				`- 需求文档 (Brainstorms): ${state.brainstorms.length} 个 ${state.latestBrainstorm ? `(最新: ${state.latestBrainstorm.filename})` : ""}`,
-				`- 执行计划 (Plans): ${state.plans.length} 个 ${state.latestPlan ? `(最新: ${state.latestPlan.filename})` : ""}`,
-				`- 运行断点 (Checkpoints): ${state.checkpoints.length} 个 ${state.activeCheckpoint ? `(已完成: ${state.activeCheckpoint.completedUnits.length} 单元)` : ""}`,
-				`- 避坑经验 (Solutions): ${state.solutions.length} 个 ${state.latestSolution ? `(最新: ${state.latestSolution.filename})` : ""}`,
-			].join("\n");
-
+			const dashboard = buildWorkflowDashboard(state, workStatus);
 			if (ctx.hasUI) {
-				ctx.ui.notify?.(msg, "info");
+				ctx.ui.notify?.(dashboard, "info");
+				const widgetLines = buildWorkflowWidgetLines(state, workStatus);
+				ctx.ui.setWidget?.("workflow", widgetLines, { placement: "aboveEditor" });
 			}
 		},
 	});
 
-	// 7. 03-work 原生自主循环驱动引擎 (无须额外命令，直接在 03-work 中原生生效)
-	// 监听用户输入与技能启动：当调用 03-work 或请求恢复执行时，自动启动自主循环驱动
+	pi.registerCommand("workflow-pause", {
+		description: "暂停当前正在运行的 03-work 自主干活循环 (同 Esc / 输入 '暂停')",
+		async handler(_args, ctx) {
+			const workDriver = await getWorkDriver();
+			if (workDriver.getStatus().isActive) {
+				detachEscapeListener();
+				await workDriver.pause("用户执行 /workflow-pause");
+				ctx.ui?.setStatus?.("workflow", undefined);
+				ctx.ui?.notify?.("⏸️ 03-work 自主循环已安全暂停。", "info");
+			} else {
+				ctx.ui?.notify?.("⚪ 03-work 当前未处于活跃运行状态。", "info");
+			}
+		},
+	});
+
+	pi.registerCommand("workflow-resume", {
+		description: "恢复当前计划的 03-work 自主干活循环 (同 /skill:03-work / 输入 '继续干活')",
+		async handler(_args, ctx) {
+			const workDriver = await getWorkDriver();
+			workDriver.setRepoRoot(ctx.cwd || process.cwd());
+			const res = await workDriver.start();
+			if (res.success && res.status.isActive) {
+				attachEscapeListener(ctx);
+				ctx.ui?.setStatus?.(
+					"workflow",
+					`🔄 03-work 自主干活 [${res.status.completedUnits.length}/${res.status.allUnits.length}]`,
+				);
+				ctx.ui?.notify?.("🚀 03-work 自主循环已恢复驱动。", "info");
+			} else {
+				ctx.ui?.notify?.(res.message, "info");
+			}
+		},
+	});
+
+	// 7. 03-work 原生自主循环驱动引擎与极轻量按需键盘中断监听
+	// 仅在 03-work 自主循环运行时按需挂载 Esc 监听，暂停或结束时立即脱钩，日常打字 0 开销
+	let terminalInputUnsub: (() => void) | null = null;
+	async function attachEscapeListener(ctx: ExtensionContext) {
+		if (ctx.hasUI && !terminalInputUnsub && ctx.ui?.onTerminalInput) {
+			const { matchesKey } = await import("@earendil-works/pi-tui");
+			terminalInputUnsub = ctx.ui.onTerminalInput((data: string) => {
+				if (
+					(data === "\x1b" || matchesKey(data, "escape")) &&
+					workDriverInstance &&
+					workDriverInstance.getStatus().isActive
+				) {
+					detachEscapeListener();
+					workDriverInstance.pause("用户按 Esc 中断");
+					ctx.ui?.setStatus?.("workflow", undefined);
+					ctx.ui?.notify?.(
+						"⏸️ 03-work 自主循环已响应 Esc 安全暂停。随时输入“继续”或调用 /skill:03-work 即可恢复。",
+						"info",
+					);
+					// 不消费按键，透传给宿主让 Pi 终止当前正在运行的模型回合或工具命令
+					return undefined;
+				}
+				return undefined;
+			});
+		}
+	}
+
+	function detachEscapeListener() {
+		if (terminalInputUnsub) {
+			terminalInputUnsub();
+			terminalInputUnsub = null;
+		}
+	}
+
+	// 监听用户输入与技能启动：只有显式触发 03-work 时才启动自主循环（绝不读取 systemPrompt）
 	pi.on("before_agent_start", async (event, ctx) => {
-		const promptLower = event.prompt.toLowerCase();
-		const is03Work =
-			event.prompt.includes("03-work") ||
-			event.systemPrompt.includes("03-work") ||
-			(promptLower.includes("03") &&
-				(promptLower.includes("work") ||
-					promptLower.includes("继续") ||
-					promptLower.includes("恢复") ||
-					promptLower.includes("resume") ||
-					promptLower.includes("干活")));
+		const is03Work = isExplicit03WorkTrigger(event.prompt);
 
 		if (is03Work && (!workDriverInstance || !workDriverInstance.getStatus().isActive)) {
 			const workDriver = await getWorkDriver();
 			workDriver.setRepoRoot(ctx.cwd || process.cwd());
 			const res = await workDriver.start();
 			if (res.success && res.status.isActive) {
+				attachEscapeListener(ctx);
 				const nextUnit = res.status.currentUnit ? `下一个: ${res.status.currentUnit}` : "准备就绪";
 				ctx.ui?.setStatus?.(
 					"workflow",
@@ -302,14 +387,35 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 监听用户打断指令：用户若输入“暂停”或“停止”，自动安全挂起 03 自主循环
+	const WORKFLOW_SHORTCUTS: Record<string, string> = {
+		"00": "00-next",
+		"/00": "00-next",
+		"01": "01-brainstorm",
+		"/01": "01-brainstorm",
+		"02": "02-plan",
+		"/02": "02-plan",
+		"03": "03-work",
+		"/03": "03-work",
+		"04": "04-review",
+		"/04": "04-review",
+		"05": "05-learn",
+		"/05": "05-learn",
+	};
+
+	// 监听用户打断指令与极简快捷指令（如输入 01 自动转为 /skill:01-brainstorm）
 	pi.on("input", async (event, ctx) => {
-		const text = event.text.trim().toLowerCase();
+		if (event.source === "extension") return { action: "continue" };
+
+		const raw = event.text.trim();
+		const lower = raw.toLowerCase();
+
+		// 1. 暂停/打断指令：用户若输入“暂停”或“停止”，自动安全挂起 03 自主循环
 		if (
 			workDriverInstance &&
 			workDriverInstance.getStatus().isActive &&
-			(text === "暂停" || text === "停止" || text === "pause" || text === "stop")
+			(lower === "暂停" || lower === "停止" || lower === "pause" || lower === "stop")
 		) {
+			detachEscapeListener();
 			await workDriverInstance.pause("用户手动输入暂停");
 			ctx.ui?.setStatus?.("workflow", undefined);
 			ctx.ui?.notify?.(
@@ -318,17 +424,68 @@ export default function workflowExtension(pi: ExtensionAPI) {
 			);
 			return { action: "handled" };
 		}
+
+		// 2. 阶段编号快捷直达：输入 00~05 自动转换为 /skill:0x-xxx
+		const match = raw.match(/^(\/?0[0-5])(?:\s+(.*))?$/);
+		if (match) {
+			const shortcutKey = match[1];
+			const skillName = WORKFLOW_SHORTCUTS[shortcutKey];
+			if (skillName) {
+				// 若当前正在 03 自主干活中，切换阶段时先优雅暂停 03
+				if (skillName !== "03-work" && workDriverInstance && workDriverInstance.getStatus().isActive) {
+					detachEscapeListener();
+					await workDriverInstance.pause(`用户通过快捷键切换至 ${skillName}`);
+					ctx.ui?.setStatus?.("workflow", undefined);
+				}
+				const rest = match[2] ? ` ${match[2]}` : "";
+				return { action: "transform", text: `/skill:${skillName}${rest}` };
+			}
+		}
+
 		return { action: "continue" };
+	});
+
+	// 监听单轮结束 (turn_end)：若因 Ctrl+C / Esc 导致当前轮次被中止，立即安全挂起
+	pi.on("turn_end", async (event, ctx) => {
+		const msg = event.message as any;
+		if (
+			workDriverInstance &&
+			workDriverInstance.getStatus().isActive &&
+			msg?.role === "assistant" &&
+			msg?.stopReason === "aborted"
+		) {
+			detachEscapeListener();
+			await workDriverInstance.pause("检测到助理回合中断 (stopReason: aborted)");
+			ctx.ui?.setStatus?.("workflow", undefined);
+		}
+	});
+
+	// 监听整段运行结束 (agent_end)：检测 abort 信号或中止消息并挂起，防止 runaway 循环
+	pi.on("agent_end", async (event, ctx) => {
+		if (workDriverInstance && workDriverInstance.getStatus().isActive) {
+			const hasAborted =
+				ctx.signal?.aborted ||
+				event.messages.some((m: any) => m?.role === "assistant" && m?.stopReason === "aborted");
+			if (hasAborted) {
+				detachEscapeListener();
+				await workDriverInstance.pause("检测到会话中断信号 (Ctrl+C / Esc)");
+				ctx.ui?.setStatus?.("workflow", undefined);
+			}
+		}
 	});
 
 	// 核心事件循环：每个回合结束后，若仍有未完成单元，自动注入下一回合实现“不做完不停机”
 	pi.on("agent_settled", async (_event, ctx) => {
 		if (workDriverInstance && workDriverInstance.getStatus().isActive) {
 			await workDriverInstance.onAgentSettled(ctx, pi);
+			if (!workDriverInstance.getStatus().isActive) {
+				detachEscapeListener();
+			}
 		}
 	});
 
 	pi.on("session_shutdown", async () => {
+		detachEscapeListener();
 		workDriverInstance?.cancelTimer();
 	});
 }

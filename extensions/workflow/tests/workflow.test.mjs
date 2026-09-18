@@ -22,8 +22,10 @@ const tsFiles = [
 	"src/tools/artifact-helper",
 	"src/tools/session-checkpoint",
 	"src/tools/workflow-state",
+	"src/tools/workflow-dashboard",
 	"src/filters/bash-output-filter",
 	"src/filters/read-output-filter",
+	"src/driver/trigger-matcher",
 	"src/driver/work-loop-driver",
 ];
 
@@ -49,6 +51,13 @@ const { detectWorkflowState } = await import(
 	pathToFileURL(path.join(tempBuildDir, "src/tools/workflow-state.js"))
 );
 
+const {
+	deriveWorkflowSteps,
+	buildWorkflowDashboard,
+	buildWorkflowWidgetLines,
+	renderProgressBar,
+} = await import(pathToFileURL(path.join(tempBuildDir, "src/tools/workflow-dashboard.js")));
+
 const { filterBashOutput } = await import(
 	pathToFileURL(path.join(tempBuildDir, "src/filters/bash-output-filter.js"))
 );
@@ -61,7 +70,7 @@ const { default: workflowExtension } = await import(
 	pathToFileURL(path.join(tempBuildDir, "index.js"))
 );
 
-const { parsePlanUnits, WorkLoopDriver } = await import(
+const { parsePlanUnits, WorkLoopDriver, isExplicit03WorkTrigger } = await import(
 	pathToFileURL(path.join(tempBuildDir, "src/driver/work-loop-driver.js"))
 );
 
@@ -253,7 +262,7 @@ test("read_output_filter: compresses lockfiles and large files", () => {
 	assert.ok(r1.output.includes("totalPackagesCount"));
 });
 
-test("workflowExtension: registers tools and command cleanly", () => {
+test("workflowExtension: registers tools and command cleanly", async () => {
 	const registeredTools = new Map();
 	const registeredCommands = new Map();
 	const listeners = new Map();
@@ -280,6 +289,20 @@ test("workflowExtension: registers tools and command cleanly", () => {
 	assert.ok(listeners.has("before_agent_start"));
 	assert.ok(listeners.has("input"));
 	assert.ok(listeners.has("agent_settled"));
+
+	// Verify 00~05 shortcut transforms
+	const inputHandler = listeners.get("input");
+	const res01 = await inputHandler({ text: "01", source: "interactive" }, {});
+	assert.deepEqual(res01, { action: "transform", text: "/skill:01-brainstorm" });
+
+	const res01WithText = await inputHandler({ text: "01 补充需求边界", source: "interactive" }, {});
+	assert.deepEqual(res01WithText, { action: "transform", text: "/skill:01-brainstorm 补充需求边界" });
+
+	const res00 = await inputHandler({ text: "00", source: "interactive" }, {});
+	assert.deepEqual(res00, { action: "transform", text: "/skill:00-next" });
+
+	const resNormal = await inputHandler({ text: "1. 选第一个方案", source: "interactive" }, {});
+	assert.deepEqual(resNormal, { action: "continue" });
 });
 
 test("parsePlanUnits: correctly extracts various unit headers and check-boxes", () => {
@@ -452,3 +475,272 @@ test("WorkLoopDriver: records failure history and triggers Stop-The-Line valve o
 
 	driver.cancelTimer();
 });
+
+test("isExplicit03WorkTrigger: accurately identifies 03-work invocations vs harmless inputs", async () => {
+	// Should match explicit 03 triggers
+	assert.equal(isExplicit03WorkTrigger("/skill:03-work"), true);
+	assert.equal(isExplicit03WorkTrigger("/skill:03"), true);
+	assert.equal(isExplicit03WorkTrigger("03-work"), true);
+	assert.equal(isExplicit03WorkTrigger("03-work docs/plans/plan.md"), true);
+	assert.equal(isExplicit03WorkTrigger("03"), true);
+	assert.equal(isExplicit03WorkTrigger("/03"), true);
+	assert.equal(isExplicit03WorkTrigger("开始干活"), true);
+	assert.equal(isExplicit03WorkTrigger("开始03"), true);
+	assert.equal(isExplicit03WorkTrigger("开始实现"), true);
+	assert.equal(isExplicit03WorkTrigger("执行03"), true);
+	assert.equal(isExplicit03WorkTrigger("继续干活"), true);
+	assert.equal(isExplicit03WorkTrigger("恢复干活"), true);
+	assert.equal(isExplicit03WorkTrigger("resume work"), true);
+	assert.equal(isExplicit03WorkTrigger("【03-work 自主循环驱动引擎 · 自动化续跑指令】"), true);
+
+	// Must NEVER match other skills or normal dialogue (prevents false auto-starts!)
+	assert.equal(isExplicit03WorkTrigger("00"), false);
+	assert.equal(isExplicit03WorkTrigger("/skill:00-next"), false);
+	assert.equal(isExplicit03WorkTrigger("01"), false);
+	assert.equal(isExplicit03WorkTrigger("/skill:01-brainstorm"), false);
+	assert.equal(isExplicit03WorkTrigger("02"), false);
+	assert.equal(isExplicit03WorkTrigger("/skill:02-plan"), false);
+	assert.equal(isExplicit03WorkTrigger("04"), false);
+	assert.equal(isExplicit03WorkTrigger("/skill:04-review"), false);
+	assert.equal(isExplicit03WorkTrigger("05"), false);
+	assert.equal(isExplicit03WorkTrigger("/skill:05-learn"), false);
+	assert.equal(isExplicit03WorkTrigger("我想了解一下03步骤是什么"), false);
+	assert.equal(isExplicit03WorkTrigger("继续讨论一下需求细节"), false);
+	assert.equal(isExplicit03WorkTrigger("请帮我恢复之前被删除的代码"), false);
+	assert.equal(isExplicit03WorkTrigger(""), false);
+	assert.equal(isExplicit03WorkTrigger("   "), false);
+});
+
+test("workflow-dashboard: derives all 5 steps and renders goal-style status dashboard", async () => {
+	const mockState = {
+		repoRoot: "/test/repo",
+		hasArtifacts: true,
+		stage: "planned",
+		recommendedSkill: "03-work",
+		recommendationReason: "计划已就绪",
+		brainstorms: [{ filename: "requirements.md", relativePath: "docs/brainstorms/requirements.md", mtimeMs: 100 }],
+		plans: [{ filename: "plan.md", relativePath: "docs/plans/plan.md", mtimeMs: 200 }],
+		solutions: [],
+		checkpoints: [],
+		latestBrainstorm: { filename: "requirements.md", relativePath: "docs/brainstorms/requirements.md", mtimeMs: 100 },
+		latestPlan: { filename: "plan.md", relativePath: "docs/plans/plan.md", mtimeMs: 200 },
+		totalUnitsCount: 4,
+		completedUnitsCount: 1,
+		remainingUnitsCount: 3,
+		nextUnitId: "Unit 1",
+	};
+
+	const mockWorkStatus = {
+		isActive: true,
+		planPath: "/test/repo/docs/plans/plan.md",
+		planSlug: "plan",
+		allUnits: ["Unit 0", "Unit 1", "Unit 2", "Unit 3"],
+		completedUnits: ["Unit 0"],
+		remainingUnits: ["Unit 1", "Unit 2", "Unit 3"],
+		currentUnit: "Unit 1",
+		failedUnit: null,
+		consecutiveFailures: 0,
+		currentRunCount: 1,
+		maxRuns: 50,
+	};
+
+	// 1. Check all 5 steps derivation
+	const steps = deriveWorkflowSteps(mockState, mockWorkStatus);
+	assert.equal(steps.length, 5);
+	assert.equal(steps[0].number, "01");
+	assert.equal(steps[0].id, "01-brainstorm");
+	assert.equal(steps[0].status, "completed");
+
+	assert.equal(steps[1].number, "02");
+	assert.equal(steps[1].id, "02-plan");
+	assert.equal(steps[1].status, "completed");
+
+	assert.equal(steps[2].number, "03");
+	assert.equal(steps[2].id, "03-work");
+	assert.equal(steps[2].status, "in_progress");
+	assert.equal(steps[2].isCurrent, true);
+
+	assert.equal(steps[3].number, "04");
+	assert.equal(steps[3].id, "04-review");
+
+	assert.equal(steps[4].number, "05");
+	assert.equal(steps[4].id, "05-learn");
+
+	// 2. Check full dashboard rendering
+	const dashboard = buildWorkflowDashboard(mockState, mockWorkStatus);
+	assert.ok(dashboard.includes("Workflow Dashboard"));
+	assert.ok(dashboard.includes("▶ [03] 03-work"));
+	assert.ok(dashboard.includes("[01] 01-brainstorm"));
+	assert.ok(dashboard.includes("[02] 02-plan"));
+	assert.ok(dashboard.includes("[04] 04-review"));
+	assert.ok(dashboard.includes("[05] 05-learn"));
+	assert.ok(dashboard.includes("Esc/Ctrl+C"));
+	assert.ok(dashboard.includes("单元进度:"));
+
+	// 3. Check progress bar helper
+	assert.equal(renderProgressBar(2, 4, 8), "████░░░░");
+	assert.equal(renderProgressBar(4, 4, 8), "████████");
+	assert.equal(renderProgressBar(0, 4, 8), "░░░░░░░░");
+
+	// 4. Check widget lines
+	const widgetLines = buildWorkflowWidgetLines(mockState, mockWorkStatus);
+	assert.ok(widgetLines[0].includes("03-work"));
+	assert.ok(widgetLines[0].includes("Unit 1"));
+});
+
+test("WorkLoopDriver: Esc/Abort interruption safely disarms autonomous driving", async () => {
+	const testRoot = path.join(tempBuildDir, "loop-interrupt-test-" + Date.now());
+	const plansDir = path.join(testRoot, "docs", "plans");
+	await mkdir(plansDir, { recursive: true });
+
+	const planFile = path.join(plansDir, "interrupt-plan.md");
+	await writeFile(planFile, "# Plan\n### Unit 0 — Alpha\n### Unit 1 — Beta", "utf-8");
+
+	const driver = new WorkLoopDriver(testRoot);
+	await driver.start(planFile);
+	assert.equal(driver.getStatus().isActive, true);
+
+	// 1. Simulate pause triggered by Esc / user action
+	await driver.pause("用户按 Esc 中断");
+	assert.equal(driver.getStatus().isActive, false);
+	assert.ok(driver.getStatus().lastMessage.includes("用户按 Esc 中断"));
+
+	// 2. Simulate agent_settled called while paused -> must NOT start next turn
+	let sendCalled = false;
+	const mockPi = {
+		sendUserMessage() {
+			sendCalled = true;
+		},
+	};
+	const mockCtx = {
+		signal: undefined,
+		ui: { notify() {}, setStatus() {} },
+	};
+	await driver.onAgentSettled(mockCtx, mockPi);
+	assert.equal(sendCalled, false);
+	assert.equal(driver.getStatus().isActive, false);
+
+	// 3. Test onAgentSettled with ctx.signal.aborted
+	await driver.start(planFile);
+	assert.equal(driver.getStatus().isActive, true);
+	const abortedCtx = {
+		signal: { aborted: true },
+		ui: { notify() {}, setStatus() {} },
+	};
+	await driver.onAgentSettled(abortedCtx, mockPi);
+	assert.equal(driver.getStatus().isActive, false);
+	assert.equal(sendCalled, false);
+
+	// 4. Test onAgentSettled with last assistant message aborted (Ctrl+C / Esc aftermath)
+	await driver.start(planFile);
+	assert.equal(driver.getStatus().isActive, true);
+	const sessionAbortedCtx = {
+		signal: undefined,
+		sessionManager: {
+			getBranch() {
+				return [
+					{ type: "message", message: { role: "user", content: "hello" } },
+					{ type: "message", message: { role: "assistant", stopReason: "aborted", content: "stopping..." } },
+				];
+			},
+		},
+		ui: { notify() {}, setStatus() {} },
+	};
+	await driver.onAgentSettled(sessionAbortedCtx, mockPi);
+	assert.equal(driver.getStatus().isActive, false);
+	assert.equal(sendCalled, false);
+	assert.ok(driver.getStatus().lastMessage.includes("中断"));
+});
+
+test("E2E Lifecycle: 01 brainstorm -> 02 plan -> 01 rollback -> 03 work -> compact dashboard & widget", async () => {
+	const testRoot = path.join(tempBuildDir, "e2e-workflow-" + Date.now());
+	const brainstormsDir = path.join(testRoot, "docs", "brainstorms");
+	const plansDir = path.join(testRoot, "docs", "plans");
+	await mkdir(brainstormsDir, { recursive: true });
+	await mkdir(plansDir, { recursive: true });
+
+	// 1. Initial State: No artifacts -> recommends 01-brainstorm
+	let state = await detectWorkflowState(testRoot);
+	assert.equal(state.recommendedSkill, "01-brainstorm");
+
+	// 2. User creates 01 brainstorm artifact
+	const bsFile = path.join(brainstormsDir, "2026-09-18-auth-requirements.md");
+	await writeFile(bsFile, "# Auth Requirements\nScope: login, register", "utf-8");
+
+	state = await detectWorkflowState(testRoot);
+	assert.equal(state.recommendedSkill, "02-plan");
+	assert.equal(state.brainstorms.length, 1);
+
+	// 3. User creates 02 plan artifact
+	const planFile = path.join(plansDir, "2026-09-18-auth-plan.md");
+	await writeFile(
+		planFile,
+		"# Auth Plan\n### Unit 0 — DB Schema\n### Unit 1 — API Route\n### Unit 2 — Tests",
+		"utf-8",
+	);
+
+	state = await detectWorkflowState(testRoot);
+	assert.equal(state.recommendedSkill, "03-work");
+	assert.equal(state.totalUnitsCount, 3);
+
+	// 4. User is in 02, realizes requirements need changes -> Rolls back to 01!
+	// (Simulate input event transform)
+	const listeners = new Map();
+	const mockPi = {
+		registerTool() {},
+		registerCommand() {},
+		on(event, handler) {
+			listeners.set(event, handler);
+		},
+	};
+	workflowExtension(mockPi);
+	const inputHandler = listeners.get("input");
+
+	// User types "01 增加第三方登录"
+	const transformRes = await inputHandler({ text: "01 增加第三方登录", source: "interactive" }, {});
+	assert.deepEqual(transformRes, {
+		action: "transform",
+		text: "/skill:01-brainstorm 增加第三方登录",
+	});
+
+	// User updates brainstorm file
+	await writeFile(bsFile, "# Auth Requirements\nScope: login, register, oauth2", "utf-8");
+
+	// 5. User returns to 02
+	const returnTo02 = await inputHandler({ text: "02", source: "interactive" }, {});
+	assert.deepEqual(returnTo02, {
+		action: "transform",
+		text: "/skill:02-plan",
+	});
+
+	// 6. User enters 03 -> starts autonomous work
+	const driver = new WorkLoopDriver(testRoot);
+	const startRes = await driver.start(planFile);
+	assert.equal(startRes.success, true);
+	assert.equal(startRes.status.isActive, true);
+
+	// 7. Verify Dashboard height is strictly 7 lines
+	const dashboard = buildWorkflowDashboard(state, driver.getStatus());
+	const dashboardLines = dashboard.trim().split("\n");
+	assert.equal(dashboardLines.length, 7, "Dashboard must strictly occupy exactly 7 lines");
+	assert.ok(dashboard.includes("▶ [03] 03-work"));
+	assert.ok(dashboard.includes("✓ [01] 01-brainstorm"));
+	assert.ok(dashboard.includes("✓ [02] 02-plan"));
+
+	// 8. Verify Widget height is strictly 1 line
+	const widgetLines = buildWorkflowWidgetLines(state, driver.getStatus());
+	assert.equal(widgetLines.length, 1, "Widget must strictly occupy exactly 1 line");
+	assert.ok(widgetLines[0].includes("03-work"));
+	assert.ok(widgetLines[0].includes("01✓ 02✓ 03▶"));
+
+	// 9. Manual interruption (Esc) stops the loop
+	await driver.pause("User hit Esc");
+	assert.equal(driver.getStatus().isActive, false);
+
+	// Post-pause widget is also strictly 1 line
+	const pausedWidgetLines = buildWorkflowWidgetLines(state, driver.getStatus());
+	assert.equal(pausedWidgetLines.length, 1);
+	assert.ok(pausedWidgetLines[0].includes("已暂停"));
+});
+
+
