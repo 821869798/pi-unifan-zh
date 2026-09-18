@@ -473,17 +473,16 @@ test("WorkLoopDriver: records failure history and triggers Stop-The-Line valve o
 test("isExplicit03WorkTrigger: accurately identifies 03-work invocations vs harmless inputs", async () => {
 	// Should match explicit 03 triggers
 	assert.equal(isExplicit03WorkTrigger("/skill:03-work"), true);
-	assert.equal(isExplicit03WorkTrigger("/skill:03"), true);
 	assert.equal(isExplicit03WorkTrigger("开始干活"), true);
-	assert.equal(isExplicit03WorkTrigger("开始03"), true);
 	assert.equal(isExplicit03WorkTrigger("开始实现"), true);
-	assert.equal(isExplicit03WorkTrigger("执行03"), true);
+	assert.equal(isExplicit03WorkTrigger("执行03-work"), true);
 	assert.equal(isExplicit03WorkTrigger("继续干活"), true);
 	assert.equal(isExplicit03WorkTrigger("恢复干活"), true);
 	assert.equal(isExplicit03WorkTrigger("resume work"), true);
 	assert.equal(isExplicit03WorkTrigger("【03-work 自主循环驱动引擎 · 自动化续跑指令】"), true);
 
-	// Plain numbers must NEVER trigger (must require /skill: or explicit phrase)
+	// Alias /skill:03 or plain numbers must NEVER trigger (strictly require full skill name /skill:03-work)
+	assert.equal(isExplicit03WorkTrigger("/skill:03"), false);
 	assert.equal(isExplicit03WorkTrigger("03"), false);
 	assert.equal(isExplicit03WorkTrigger("/03"), false);
 

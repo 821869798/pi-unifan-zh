@@ -8,20 +8,17 @@ export function isExplicit03WorkTrigger(prompt: string): boolean {
 	const lower = trimmed.toLowerCase();
 
 	// 1. Direct skill invocation or slash command
-	if (
-		lower.startsWith("/skill:03-work") ||
-		lower === "/skill:03"
-	) {
+	if (lower.startsWith("/skill:03-work")) {
 		return true;
 	}
 
 	// 2. Strict keywords and natural language commands to start/resume 03 work
 	const strictPatterns = [
-		/^开始(03|干活|编码|实现|写代码)/,
-		/^执行(03|03-work|干活)/,
+		/^开始(干活|编码|实现|写代码)/,
+		/^执行03-work/,
 		/^自主(干活|工作|编码)/,
-		/^(继续|恢复)(干活|03|工作|work)/i,
-		/^resume\s+(03|work)/i,
+		/^(继续|恢复)(干活|工作|work)/i,
+		/^resume\s+work/i,
 	];
 
 	if (strictPatterns.some((p) => p.test(trimmed))) {
