@@ -70,7 +70,12 @@ const { default: workflowExtension } = await import(
 	pathToFileURL(path.join(tempBuildDir, "index.js"))
 );
 
-const { parsePlanUnits, WorkLoopDriver, isExplicit03WorkTrigger } = await import(
+const {
+	parsePlanUnits,
+	WorkLoopDriver,
+	isExplicit03WorkTrigger,
+	normalizeUnitId,
+} = await import(
 	pathToFileURL(path.join(tempBuildDir, "src/driver/work-loop-driver.js"))
 );
 
@@ -324,8 +329,25 @@ Done.
 	assert.equal(units[0].title, "Unit 0 — 探针：面板焦点 / 键盘 / IME (阻塞所有 UI 工作)");
 	assert.equal(units[1].id, "Unit 1");
 	assert.equal(units[2].id, "Unit 2");
+	assert.equal(units[2].checked, false);
 	assert.equal(units[3].id, "Unit 3");
+	assert.equal(units[3].checked, true);
 	assert.equal(units[4].id, "Unit 4");
+
+	// Test Chinese step headers and list items
+	const chinesePlanMd = `
+# 中文任务规划
+### 步骤 1: 基础设施配置
+- [x] 步骤 2: 核心协议实现
+- [ ] 步骤 3: 全量单元测试与回归
+`;
+	const zhUnits = parsePlanUnits(chinesePlanMd);
+	assert.equal(zhUnits.length, 3);
+	assert.equal(zhUnits[0].id, "步骤 1");
+	assert.equal(zhUnits[1].id, "步骤 2");
+	assert.equal(zhUnits[1].checked, true);
+	assert.equal(zhUnits[2].id, "步骤 3");
+	assert.equal(zhUnits[2].checked, false);
 });
 
 test("WorkLoopDriver: autonomous lifecycle and prompt generation", async () => {
@@ -470,21 +492,27 @@ test("WorkLoopDriver: records failure history and triggers Stop-The-Line valve o
 	driver.cancelTimer();
 });
 
-test("isExplicit03WorkTrigger: accurately identifies 03-work invocations vs harmless inputs", async () => {
-	// Should match explicit 03 triggers
+test("isExplicit03WorkTrigger: accurately identifies canonical 03-work invocations vs harmless inputs", async () => {
+	// Should match canonical /skill:03-work, Pi's expanded XML, strict natural language, and engine follow-up
 	assert.equal(isExplicit03WorkTrigger("/skill:03-work"), true);
+	assert.equal(isExplicit03WorkTrigger('<skill name="03-work" location="extensions/workflow/skills/03-work/SKILL.md">'), true);
 	assert.equal(isExplicit03WorkTrigger("开始干活"), true);
 	assert.equal(isExplicit03WorkTrigger("开始实现"), true);
+	assert.equal(isExplicit03WorkTrigger("开始编码"), true);
+	assert.equal(isExplicit03WorkTrigger("开始写代码"), true);
 	assert.equal(isExplicit03WorkTrigger("执行03-work"), true);
 	assert.equal(isExplicit03WorkTrigger("继续干活"), true);
 	assert.equal(isExplicit03WorkTrigger("恢复干活"), true);
 	assert.equal(isExplicit03WorkTrigger("resume work"), true);
 	assert.equal(isExplicit03WorkTrigger("【03-work 自主循环驱动引擎 · 自动化续跑指令】"), true);
 
-	// Alias /skill:03 or plain numbers must NEVER trigger (strictly require full skill name /skill:03-work)
+	// Plain numbers or informal abbreviations must NEVER trigger (strictly require canonical name)
 	assert.equal(isExplicit03WorkTrigger("/skill:03"), false);
 	assert.equal(isExplicit03WorkTrigger("03"), false);
 	assert.equal(isExplicit03WorkTrigger("/03"), false);
+	assert.equal(isExplicit03WorkTrigger("03-work"), false);
+	assert.equal(isExplicit03WorkTrigger("/03-work"), false);
+	assert.equal(isExplicit03WorkTrigger("/work"), false);
 
 	// Must NEVER match other skills or normal dialogue (prevents false auto-starts!)
 	assert.equal(isExplicit03WorkTrigger("00"), false);
@@ -502,6 +530,21 @@ test("isExplicit03WorkTrigger: accurately identifies 03-work invocations vs harm
 	assert.equal(isExplicit03WorkTrigger("请帮我恢复之前被删除的代码"), false);
 	assert.equal(isExplicit03WorkTrigger(""), false);
 	assert.equal(isExplicit03WorkTrigger("   "), false);
+});
+
+test("normalizeUnitId: correctly normalizes unit representations to standard IDs", async () => {
+	const knownUnits = [
+		{ id: "Unit 0", title: "Unit 0: DB Schema", raw: "### Unit 0: DB Schema" },
+		{ id: "Unit 1", title: "Unit 1: API Endpoint", raw: "### Unit 1: API Endpoint" },
+	];
+
+	assert.equal(normalizeUnitId("Unit 0: DB Schema", knownUnits), "Unit 0");
+	assert.equal(normalizeUnitId("unit 0", knownUnits), "Unit 0");
+	assert.equal(normalizeUnitId("0", knownUnits), "Unit 0");
+	assert.equal(normalizeUnitId("1", knownUnits), "Unit 1");
+	assert.equal(normalizeUnitId("### Unit 0 — Alpha"), "Unit 0");
+	assert.equal(normalizeUnitId("步骤 2: 业务逻辑"), "步骤 2");
+	assert.equal(normalizeUnitId(""), "");
 });
 
 test("workflow-dashboard: derives all 5 steps and renders goal-style status dashboard", async () => {

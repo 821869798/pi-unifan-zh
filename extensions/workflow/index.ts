@@ -425,21 +425,17 @@ export default function workflowExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 监听整段运行结束 (agent_end)：检测 abort 信号或中止消息并挂起，防止 runaway 循环
+	// 监听整段运行结束 (agent_end)：在 agent_end 中无缝驱动下一单元 (Native Continuous Loop)
 	pi.on("agent_end", async (event, ctx) => {
 		if (workDriverInstance && workDriverInstance.getStatus().isActive) {
-			const hasAborted =
-				ctx.signal?.aborted ||
-				event.messages.some((m: any) => m?.role === "assistant" && m?.stopReason === "aborted");
-			if (hasAborted) {
+			await workDriverInstance.onAgentEnd(event, ctx, pi);
+			if (!workDriverInstance.getStatus().isActive) {
 				detachEscapeListener();
-				await workDriverInstance.pause("检测到会话中断信号 (Ctrl+C / Esc)");
-				ctx.ui?.setStatus?.("workflow", undefined);
 			}
 		}
 	});
 
-	// 核心事件循环：每个回合结束后，若仍有未完成单元，自动注入下一回合实现“不做完不停机”
+	// 核心事件循环兜底：每个回合彻底结算后，若仍有未完成单元，提供二次兜底保障
 	pi.on("agent_settled", async (_event, ctx) => {
 		if (workDriverInstance && workDriverInstance.getStatus().isActive) {
 			await workDriverInstance.onAgentSettled(ctx, pi);
