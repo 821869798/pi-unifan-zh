@@ -100,6 +100,15 @@ test('提供方或认证缺失时停止生成', async () => {
   await assert.rejects(generateCommitMessage(ctx, 'diff', []), /提供方不可用/);
 });
 
+test('规范化模型返回的全角提交格式', async () => {
+  const result = await generateCommitMessage(
+    context(async () => response('fix（character）：修复角色Renderer收集遗漏')),
+    'diff',
+    ['角色.cs'],
+  );
+  assert.equal(result, 'fix(character): 修复角色Renderer收集遗漏');
+});
+
 test('拒绝空结果、异常完成、截断、非法格式和通用文案', async () => {
   for (const result of [response(''), response('fix: 修复残留', 'error'), response('fix: 修复残留', 'length'), response('说明文字'), response('chore(GameClient): 更新代码与相关配置')]) {
     await assert.rejects(generateCommitMessage(context(async () => result), 'diff', ['角色.cs']));

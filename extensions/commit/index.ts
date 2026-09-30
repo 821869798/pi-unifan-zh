@@ -84,11 +84,19 @@ export async function generateCommitMessage(
 	const text = response.content.map((c) => c.type === "text" ? c.text : "").join("").trim()
 		.replace(/^```[a-zA-Z]*\r?\n?/, "").replace(/\r?\n?```$/, "").trim();
 	if (!text) throw new Error("模型返回了空的提交信息。");
-	if (!/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(\([^()\r\n]+\))?: [^\r\n]+$/.test(text.split(/\r?\n/)[0]))
+	const lines = text.split(/\r?\n/);
+	const normalizedTitle = lines[0].replace(
+		/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(?:\(([^()\r\n]+)\)|（([^（）\r\n]+)）)?\s*[:：]\s*(.+)$/,
+		(_match, type: string, scope: string | undefined, fullWidthScope: string | undefined, description: string) =>
+			`${type}${scope || fullWidthScope ? `(${scope || fullWidthScope})` : ""}: ${description.trim()}`,
+	);
+	lines[0] = normalizedTitle;
+	const normalizedText = lines.join("\n").trim();
+	if (!/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(\([^()\r\n]+\))?: [^\r\n]+$/.test(normalizedTitle))
 		throw new Error("模型返回的提交标题不符合约定格式，请重试或补充修改说明。");
-	if (text.includes("更新代码与相关配置"))
+	if (normalizedText.includes("更新代码与相关配置"))
 		throw new Error("模型返回了无具体业务含义的通用提交信息，请补充修改说明后重试。");
-	return text;
+	return normalizedText;
 }
 
 export default function (pi: ExtensionAPI) {
