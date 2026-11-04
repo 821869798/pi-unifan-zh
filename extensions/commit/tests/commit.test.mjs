@@ -117,6 +117,53 @@ test('拒绝空结果、异常完成、截断、非法格式和通用文案', as
   await assert.rejects(generateCommitMessage({ modelRegistry: {} }, 'diff', []), /未选择模型/);
 });
 
+test('仅去除首行完整包装，保留正文', async () => {
+  for (const title of ['**fix(角色): 恢复原速播放**', '`fix(角色): 恢复原速播放`']) {
+    let calls = 0;
+    const result = await generateCommitMessage(context(async () => {
+      calls++;
+      return response(title + '\n\n保留原始动画节奏');
+    }), 'diff', ['角色.cs']);
+    assert.equal(result, 'fix(角色): 恢复原速播放\n\n保留原始动画节奏');
+    assert.equal(calls, 1);
+  }
+});
+
+test('首行说明触发一次纠正，不直接猜测后面的候选标题', async () => {
+  let calls = 0;
+  const ctx = context(async (_model, prompt) => {
+    calls++;
+    if (calls === 1) return response('建议的提交信息：\nfix: 错误候选');
+    assert.match(prompt.messages[0].content[0].text, /上一次输出的首行不符合/);
+    return response('fix(角色): 恢复原速播放');
+  });
+  assert.equal(await generateCommitMessage(ctx, 'diff', ['角色.cs']), 'fix(角色): 恢复原速播放');
+  assert.equal(calls, 2);
+});
+
+test('纠正失败提供有界首行诊断，绝不无限重试', async () => {
+  let calls = 0;
+  await assert.rejects(generateCommitMessage(context(async () => {
+    calls++;
+    return response('说明文字' + '长'.repeat(300));
+  }), 'diff', ['角色.cs']), error => {
+    assert.match(error.message, /自动纠正一次后仍失败/);
+    assert.match(error.message, /实际首行/);
+    assert.ok(!error.message.includes('长'.repeat(161)));
+    return true;
+  });
+  assert.equal(calls, 2);
+});
+
+test('异常完成不会进入格式纠正重试', async () => {
+  let calls = 0;
+  await assert.rejects(generateCommitMessage(context(async () => {
+    calls++;
+    return response('fix: 修复问题', 'error');
+  }), 'diff', []), /未正常完成生成/);
+  assert.equal(calls, 1);
+});
+
 test('生成失败不提交或推送，文件清单仅包含暂存区', async () => {
   const repo = join(root, 'repo');
   await mkdir(repo);
@@ -140,11 +187,11 @@ test('生成失败不提交或推送，文件清单仅包含暂存区', async ()
     sendMessage: message => messages.push(message),
     getThinkingLevel: () => 'max',
   });
-  const ctx = { ...context(async () => { throw new Error('认证失败'); }), cwd: repo, hasUI: true, ui: { notify() {} } };
+  const ctx = { ...context(async () => response('无法生成规范标题')), cwd: repo, hasUI: true, ui: { notify() {} } };
   await commands.get('commit-push').handler('', ctx);
   assert.equal(git('rev-parse', 'HEAD'), head);
   assert.match(messages.at(-1).content, /未执行提交或推送/);
-  assert.match(messages.at(-1).content, /认证失败/);
+  assert.match(messages.at(-1).content, /自动纠正一次后仍失败/);
   assert.deepEqual(await getStagedFiles(repo), ['角色 文件.cs']);
   // 兼容尚未提供 ctx.thinkingLevel 的宿主，从公开会话接口获取实际档位。
   delete ctx.thinkingLevel;

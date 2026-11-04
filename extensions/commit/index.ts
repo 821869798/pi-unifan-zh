@@ -67,36 +67,48 @@ export async function generateCommitMessage(
 
 	// 宿主解析认证、代理地址和环境；统一接口按模型能力转换会话思考档位，避免底层调用默认发送 none。
 	const model = resolved.auth.baseUrl ? { ...ctx.model, baseUrl: resolved.auth.baseUrl } : ctx.model;
-	const response = await provider.streamSimple(model, {
-		systemPrompt: COMMIT_SYSTEM_PROMPT,
-		messages: [{ role: "user", content: [{ type: "text", text: userPrompt }], timestamp: Date.now() }],
-	}, {
-		maxTokens: 4096,
-		signal: ctx.signal,
-		reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
-		apiKey: resolved.auth.apiKey,
-		headers: resolved.auth.headers,
-		env: resolved.env,
-	}).result();
-	if (response.stopReason !== "stop")
-		throw new Error(`模型 ${modelLabel} 未正常完成生成（${response.stopReason}）：${response.errorMessage || "请检查模型状态后重试。"}`);
+	let formatFeedback = "";
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const response = await provider.streamSimple(model, {
+			systemPrompt: COMMIT_SYSTEM_PROMPT,
+			messages: [{ role: "user", content: [{ type: "text", text: userPrompt + formatFeedback }], timestamp: Date.now() }],
+		}, {
+			maxTokens: 4096,
+			signal: ctx.signal,
+			reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
+			apiKey: resolved.auth.apiKey,
+			headers: resolved.auth.headers,
+			env: resolved.env,
+		}).result();
+		if (response.stopReason !== "stop")
+			throw new Error(`模型 ${modelLabel} 未正常完成生成（${response.stopReason}）：${response.errorMessage || "请检查模型状态后重试。"}`);
 
-	const text = response.content.map((c) => c.type === "text" ? c.text : "").join("").trim()
-		.replace(/^```[a-zA-Z]*\r?\n?/, "").replace(/\r?\n?```$/, "").trim();
-	if (!text) throw new Error("模型返回了空的提交信息。");
-	const lines = text.split(/\r?\n/);
-	const normalizedTitle = lines[0].replace(
-		/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(?:\(([^()\r\n]+)\)|（([^（）\r\n]+)）)?\s*[:：]\s*(.+)$/,
-		(_match, type: string, scope: string | undefined, fullWidthScope: string | undefined, description: string) =>
-			`${type}${scope || fullWidthScope ? `(${scope || fullWidthScope})` : ""}: ${description.trim()}`,
-	);
-	lines[0] = normalizedTitle;
-	const normalizedText = lines.join("\n").trim();
-	if (!/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(\([^()\r\n]+\))?: [^\r\n]+$/.test(normalizedTitle))
-		throw new Error("模型返回的提交标题不符合约定格式，请重试或补充修改说明。");
-	if (normalizedText.includes("更新代码与相关配置"))
-		throw new Error("模型返回了无具体业务含义的通用提交信息，请补充修改说明后重试。");
-	return normalizedText;
+		const text = response.content.map((c) => c.type === "text" ? c.text : "").join("").trim()
+			.replace(/^```[a-zA-Z]*\r?\n?/, "").replace(/\r?\n?```$/, "").trim();
+		if (!text) throw new Error("模型返回了空的提交信息。");
+		const lines = text.split(/\r?\n/);
+		// 只剥离完整包裹首行的展示标记，不从说明或多个候选中猜测提交标题。
+		lines[0] = lines[0].replace(/^\*\*([^\r\n]+)\*\*$/, "$1").replace(/^`([^`\r\n]+)`$/, "$1");
+		const normalizedTitle = lines[0].replace(
+			/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(?:\(([^()\r\n]+)\)|（([^（）\r\n]+)）)?\s*[:：]\s*(.+)$/,
+			(_match, type: string, scope: string | undefined, fullWidthScope: string | undefined, description: string) =>
+				`${type}${scope || fullWidthScope ? `(${scope || fullWidthScope})` : ""}: ${description.trim()}`,
+		);
+		lines[0] = normalizedTitle;
+		const normalizedText = lines.join("\n").trim();
+		if (!/^(feat|fix|perf|refactor|ci|build|chore|docs|test|style|revert)(\([^()\r\n]+\))?: [^\r\n]+$/.test(normalizedTitle)) {
+			const preview = JSON.stringify(lines[0].slice(0, 160));
+			if (attempt === 0) {
+				formatFeedback = "\n\n上一次输出的首行不符合提交格式。请根据以上差异重新生成；第一行必须直接是 type(scope): 中文描述 或 type: 中文描述，不要说明文字、标题、列表或展示标记。";
+				continue;
+			}
+			throw new Error(`模型 ${modelLabel} 返回的提交标题不符合约定格式，自动纠正一次后仍失败。实际首行（最多160字符）：${preview}。要求格式：fix(模块): 中文描述`);
+		}
+		if (normalizedText.includes("更新代码与相关配置"))
+			throw new Error("模型返回了无具体业务含义的通用提交信息，请补充修改说明后重试。");
+		return normalizedText;
+	}
+	throw new Error("提交信息生成失败，请重试。");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -172,7 +184,7 @@ export default function (pi: ExtensionAPI) {
 			// 生成失败必须停止，禁止用固定文案继续提交或推送。
 			const reason = error instanceof Error ? error.message : String(error);
 			notify(`提交信息生成失败，未执行提交或推送：${reason}`, "error");
-			pi.sendMessage({ customType: "pi-commit-error", content: `提交信息生成失败，未执行提交或推送。\n\n${reason}\n\n当前暂存内容保留，可修复模型配置后重新执行。`, display: true });
+			pi.sendMessage({ customType: "pi-commit-error", content: `提交信息生成失败，未执行提交或推送。\n\n${reason}\n\n当前暂存内容保留，请根据上述错误原因处理后重新执行。`, display: true });
 			return;
 		}
 
