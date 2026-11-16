@@ -86,10 +86,21 @@ export async function commitWithMsg(cwd: string, message: string): Promise<{ ok:
 export async function pushCurrentBranch(
 	cwd: string,
 	onLog?: (msg: string) => void,
-): Promise<{ ok: boolean; output: string; autoRebased?: boolean; hasConflict?: boolean; blockedByDirtyWorktree?: boolean; conflictFiles?: string[] }> {
+): Promise<{ ok: boolean; output: string; autoRebased?: boolean; hasConflict?: boolean; rebaseFailed?: boolean; blockedByDirtyWorktree?: boolean; conflictFiles?: string[] }> {
+	const verifyPush = async (successOutput: string): Promise<{ ok: boolean; output: string }> => {
+		const head = await runGit(cwd, ["rev-parse", "HEAD"]);
+		const upstream = await runGit(cwd, ["rev-parse", "@{u}"]);
+		if (head.ok && upstream.ok && head.stdout.trim() === upstream.stdout.trim())
+			return { ok: true, output: successOutput };
+		return {
+			ok: false,
+			output: `git push 返回成功，但本地 HEAD 与远端跟踪分支仍不一致，已停止后续流程。\n\nHEAD: ${head.stdout.trim() || head.stderr}\n远端: ${upstream.stdout.trim() || upstream.stderr}`,
+		};
+	};
+
 	let initialPush = await runGit(cwd, ["push"]);
 	if (initialPush.ok) {
-		return { ok: true, output: initialPush.stdout || "推送成功" };
+		return verifyPush(initialPush.stdout || "推送成功");
 	}
 
 	let pushError = `${initialPush.stderr} ${initialPush.stdout}`.toLowerCase();
@@ -98,7 +109,7 @@ export async function pushCurrentBranch(
 		if (onLog) onLog("未关联远端分支，正在自动关联并推送 (git push -u origin HEAD)...");
 		const setUpstream = await runGit(cwd, ["push", "-u", "origin", "HEAD"]);
 		if (setUpstream.ok) {
-			return { ok: true, output: setUpstream.stdout || "推送成功" };
+			return verifyPush(setUpstream.stdout || "推送成功");
 		}
 		pushError = `${setUpstream.stderr} ${setUpstream.stdout}`.toLowerCase();
 	}
@@ -119,8 +130,17 @@ export async function pushCurrentBranch(
 	if (!pullRebase.ok) {
 		const rebaseErr = `${pullRebase.stderr} ${pullRebase.stdout}`;
 
-		// git 在存在未暂存改动时直接拒绝变基，这不是代码冲突。
 		const rebaseErrLower = rebaseErr.toLowerCase();
+		if (rebaseErrLower.includes("index.lock") || rebaseErrLower.includes("another git process")
+			|| rebaseErrLower.includes("unable to create") && rebaseErrLower.includes(".git")) {
+			return {
+				ok: false,
+				rebaseFailed: true,
+				output: "⚠️ Git 变基被另一个 Git 进程或残留 index.lock 阻止，未执行重试推送。请先确认没有其他 Git 操作正在运行，再处理锁文件后重试。\n\nGit 输出：\n" + rebaseErr,
+			};
+		}
+
+		// git 在存在未暂存改动时直接拒绝变基，这不是代码冲突。
 		if (rebaseErrLower.includes("unstaged changes") || rebaseErrLower.includes("please commit or stash")) {
 			return {
 				ok: false,
@@ -145,6 +165,14 @@ export async function pushCurrentBranch(
 			}
 		}
 
+		if (conflictFiles.length === 0) {
+			return {
+				ok: false,
+				rebaseFailed: true,
+				output: "⚠️ git pull --rebase 失败，未确认存在代码冲突，因此未执行重试推送。\n\nGit 输出：\n" + rebaseErr,
+			};
+		}
+
 		const filesListText = conflictFiles.length > 0
 			? `\n${conflictFiles.map((f) => `- \`${f}\``).join("\n")}\n`
 			: "\n";
@@ -164,11 +192,15 @@ export async function pushCurrentBranch(
 	if (onLog) onLog("变基拉取成功（无代码冲突），正在重新推送到远端...");
 	const retryPush = await runGit(cwd, ["push"]);
 	if (retryPush.ok) {
-		return {
-			ok: true,
-			output: "远端有新提交，已自动完成 git pull --rebase 变基并成功推送到远端！",
-			autoRebased: true,
-		};
+		const verified = await verifyPush("远端有新提交，已完成 git pull --rebase 变基并成功推送到远端！");
+		if (verified.ok) {
+			return {
+				ok: true,
+				output: verified.output,
+				autoRebased: true,
+			};
+		}
+		return verified;
 	}
 
 	return { ok: false, output: retryPush.stderr || retryPush.stdout };

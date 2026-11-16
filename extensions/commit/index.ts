@@ -207,10 +207,12 @@ export default function (pi: ExtensionAPI) {
 		notify(`✅ 成功提交: ${firstLine}`, "info");
 
 		let pushText = "";
+		let pushSucceeded = !andPush;
 		if (andPush) {
 			notify("正在推送到远端仓库 (git push)...", "info");
 			const pushRes = await pushCurrentBranch(ctx.cwd, (msg) => notify(msg, "info"));
 			if (pushRes.ok) {
+				pushSucceeded = true;
 				const successMsg = pushRes.autoRebased
 					? "🚀 远端有新提交，已自动完成变基 (pull --rebase) 并成功推送！"
 					: "🚀 成功推送到远端仓库！";
@@ -221,6 +223,8 @@ export default function (pi: ExtensionAPI) {
 					notify("⚠️ 工作区存在未暂存改动，Git 拒绝变基拉取：先 /commit -a 提交，或 git stash 后重试。", "warning");
 				} else if (pushRes.hasConflict) {
 					notify("⚠️ 远端变基冲突：请对比修改与上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
+				} else if (pushRes.rebaseFailed) {
+					notify("⚠️ git pull --rebase 未完成，未执行重试推送，请先处理变基失败原因。", "warning");
 				} else {
 					notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
 				}
@@ -230,7 +234,7 @@ export default function (pi: ExtensionAPI) {
 
 		pi.sendMessage({
 			customType: "pi-commit-result",
-			content: `### 📦 Git 提交完成\n\n\`\`\`text\n${commitMessage}\n\`\`\`${pushText}`,
+			content: `${pushSucceeded ? "### 📦 Git 提交完成" : "### ⚠️ Git 提交完成，但推送未完成"}\n\n\`\`\`text\n${commitMessage}\n\`\`\`${pushText}`,
 			display: true,
 		});
 	};
