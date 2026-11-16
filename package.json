@@ -1,6 +1,6 @@
 {
   "name": "@unifan/pi-unifan-zh",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "description": "Pi Coding Agent 中文扩展全家桶与独立插件集",
   "type": "module",
   "main": "extensions/sessions/index.ts",
@@ -54,9 +54,9 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.84.4",
-    "@earendil-works/pi-coding-agent": "^0.84.4",
-    "@earendil-works/pi-tui": "^0.84.4",
+    "@earendil-works/pi-ai": "^1.5.2",
+    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-tui": "^1.5.2",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }
