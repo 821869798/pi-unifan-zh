@@ -69,9 +69,14 @@ export async function generateCommitMessage(
 	const model = resolved.auth.baseUrl ? { ...ctx.model, baseUrl: resolved.auth.baseUrl } : ctx.model;
 	let formatFeedback = "";
 	for (let attempt = 0; attempt < 2; attempt++) {
+		// pi-ai 1.x 的提供方接口只接受已归一化的消息，context.systemPrompt 会被静默丢弃；
+		// 缺少格式约束时思考型模型会耗尽 maxTokens 却不出结果（停止原因 length），因此约束并入用户消息。
 		const response = await provider.streamSimple(model, {
-			systemPrompt: COMMIT_SYSTEM_PROMPT,
-			messages: [{ role: "user", content: [{ type: "text", text: userPrompt + formatFeedback }], timestamp: Date.now() }],
+			messages: [{
+				role: "user",
+				content: [{ type: "text", text: `${COMMIT_SYSTEM_PROMPT}\n\n${userPrompt}${formatFeedback}` }],
+				timestamp: Date.now(),
+			}],
 		}, {
 			maxTokens: 4096,
 			signal: ctx.signal,

@@ -38,6 +38,9 @@ test('通过宿主统一接口继承当前模型并返回业务日志', async ()
   const ctx = context(async (actualModel, prompt, options) => {
     assert.equal(actualModel, model);
     assert.match(prompt.messages[0].content[0].text, /修复冲线残留/);
+    // 提交规范必须随消息发送，不能依赖会被新版 pi-ai 静默丢弃的 context.systemPrompt。
+    assert.match(prompt.messages[0].content[0].text, /Conventional Commits/);
+    assert.equal(prompt.systemPrompt, undefined);
     assert.equal(options.maxTokens, 4096);
     assert.equal(options.reasoning, 'high');
     return response('```text\nfix(racing): 清理冲线特效残留\n```');
