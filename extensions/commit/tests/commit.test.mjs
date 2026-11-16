@@ -9,7 +9,8 @@ import ts from 'typescript';
 import { stream, streamSimple } from '@earendil-works/pi-ai/api/openai-responses';
 
 // 在临时目录编译并运行真实命令，不访问开发仓库的提交记录。
-const root = await mkdtemp(join(tmpdir(), 'pi-commit-test-'));
+// 放在 node_modules 下，保证编译产物能解析 @earendil-works/pi-ai 等裸包名。
+const root = await mkdtemp(join(import.meta.dirname, '../../../node_modules/.tmp-commit-test-'));
 after(() => rm(root, { recursive: true, force: true }));
 await mkdir(join(root, 'src'));
 await writeFile(join(root, 'package.json'), '{"type":"module"}');
@@ -37,9 +38,10 @@ function response(text, stopReason = 'stop') { return { content: [{ type: 'text'
 test('通过宿主统一接口继承当前模型并返回业务日志', async () => {
   const ctx = context(async (actualModel, prompt, options) => {
     assert.equal(actualModel, model);
-    assert.match(prompt.messages[0].content[0].text, /修复冲线残留/);
-    // 提交规范必须随消息发送，不能依赖会被新版 pi-ai 静默丢弃的 context.systemPrompt。
-    assert.match(prompt.messages[0].content[0].text, /Conventional Commits/);
+    // normalizeContext 会把提交规范折成首条 system 消息，提供方接口才能收到约束。
+    assert.equal(prompt.messages[0].role, 'system');
+    assert.match(prompt.messages[0].content, /Conventional Commits/);
+    assert.match(prompt.messages[1].content[0].text, /修复冲线残留/);
     assert.equal(prompt.systemPrompt, undefined);
     assert.equal(options.maxTokens, 4096);
     assert.equal(options.reasoning, 'high');
@@ -137,7 +139,7 @@ test('首行说明触发一次纠正，不直接猜测后面的候选标题', as
   const ctx = context(async (_model, prompt) => {
     calls++;
     if (calls === 1) return response('建议的提交信息：\nfix: 错误候选');
-    assert.match(prompt.messages[0].content[0].text, /上一次输出的首行不符合/);
+    assert.match(prompt.messages[1].content[0].text, /上一次输出的首行不符合/);
     return response('fix(角色): 恢复原速播放');
   });
   assert.equal(await generateCommitMessage(ctx, 'diff', ['角色.cs']), 'fix(角色): 恢复原速播放');

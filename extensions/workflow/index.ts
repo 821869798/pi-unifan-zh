@@ -370,7 +370,12 @@ export default function workflowExtension(pi: ExtensionAPI) {
 
 	// 监听用户输入与技能启动：只有显式触发 03-work 时才启动自主循环（绝不读取 systemPrompt）
 	pi.on("before_agent_start", async (event, ctx) => {
-		const is03Work = isExplicit03WorkTrigger(event.prompt);
+		const promptText = event.messageType === "user"
+			? event.prompt
+			: typeof event.message.content === "string"
+				? event.message.content
+				: event.message.content.map((part) => part.type === "text" ? part.text : "").join("");
+		const is03Work = isExplicit03WorkTrigger(promptText);
 
 		if (is03Work && (!workDriverInstance || !workDriverInstance.getStatus().isActive)) {
 			const workDriver = await getWorkDriver();

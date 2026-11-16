@@ -301,6 +301,7 @@ async function safeExec(
 			stderr: err instanceof Error ? err.message : String(err),
 			code: -1,
 			killed: true,
+			truncated: false,
 		};
 	} finally {
 		if (timer) clearTimeout(timer);

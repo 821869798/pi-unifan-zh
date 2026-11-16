@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import {
 	commitWithMsg,
 	getStagedFiles,
@@ -69,15 +70,16 @@ export async function generateCommitMessage(
 	const model = resolved.auth.baseUrl ? { ...ctx.model, baseUrl: resolved.auth.baseUrl } : ctx.model;
 	let formatFeedback = "";
 	for (let attempt = 0; attempt < 2; attempt++) {
-		// pi-ai 1.x 的提供方接口只接受已归一化的消息，context.systemPrompt 会被静默丢弃；
-		// 缺少格式约束时思考型模型会耗尽 maxTokens 却不出结果（停止原因 length），因此约束并入用户消息。
-		const response = await provider.streamSimple(model, {
+		// pi-ai 的提供方接口只接受 normalizeContext() 归一化后的消息；直接传 context.systemPrompt 会被丢弃，
+		// 思考型模型随即失去格式约束，耗尽 maxTokens 后以 length 结束且无正文。
+		const response = await provider.streamSimple(model, normalizeContext({
+			systemPrompt: COMMIT_SYSTEM_PROMPT,
 			messages: [{
 				role: "user",
-				content: [{ type: "text", text: `${COMMIT_SYSTEM_PROMPT}\n\n${userPrompt}${formatFeedback}` }],
+				content: [{ type: "text", text: userPrompt + formatFeedback }],
 				timestamp: Date.now(),
 			}],
-		}, {
+		}), {
 			maxTokens: 4096,
 			signal: ctx.signal,
 			reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
