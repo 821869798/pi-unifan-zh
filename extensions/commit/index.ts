@@ -152,7 +152,9 @@ export default function (pi: ExtensionAPI) {
 							display: true,
 						});
 					} else {
-						if (pushRes.hasConflict) {
+						if (pushRes.blockedByDirtyWorktree) {
+							notify("⚠️ 工作区存在未暂存改动，Git 拒绝变基拉取：先 /commit -a 提交，或 git stash 后重试。", "warning");
+						} else if (pushRes.hasConflict) {
 							notify("⚠️ 远端变基冲突：请对比修改与上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
 						} else {
 							notify(`⚠️ 推送失败: ${pushRes.output}`, "error");
@@ -215,7 +217,9 @@ export default function (pi: ExtensionAPI) {
 				notify(successMsg, "info");
 				pushText = `\n\n${successMsg}`;
 			} else {
-				if (pushRes.hasConflict) {
+				if (pushRes.blockedByDirtyWorktree) {
+					notify("⚠️ 工作区存在未暂存改动，Git 拒绝变基拉取：先 /commit -a 提交，或 git stash 后重试。", "warning");
+				} else if (pushRes.hasConflict) {
 					notify("⚠️ 远端变基冲突：请对比修改与上下文解决冲突，严禁直接使用 ours/theirs。", "warning");
 				} else {
 					notify(`⚠️ 推送失败: ${pushRes.output}`, "error");

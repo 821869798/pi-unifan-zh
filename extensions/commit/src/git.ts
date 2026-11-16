@@ -86,7 +86,7 @@ export async function commitWithMsg(cwd: string, message: string): Promise<{ ok:
 export async function pushCurrentBranch(
 	cwd: string,
 	onLog?: (msg: string) => void,
-): Promise<{ ok: boolean; output: string; autoRebased?: boolean; hasConflict?: boolean; conflictFiles?: string[] }> {
+): Promise<{ ok: boolean; output: string; autoRebased?: boolean; hasConflict?: boolean; blockedByDirtyWorktree?: boolean; conflictFiles?: string[] }> {
 	let initialPush = await runGit(cwd, ["push"]);
 	if (initialPush.ok) {
 		return { ok: true, output: initialPush.stdout || "推送成功" };
@@ -118,7 +118,17 @@ export async function pushCurrentBranch(
 	const pullRebase = await runGit(cwd, ["pull", "--rebase"]);
 	if (!pullRebase.ok) {
 		const rebaseErr = `${pullRebase.stderr} ${pullRebase.stdout}`;
-		
+
+		// git 在存在未暂存改动时直接拒绝变基，这不是代码冲突。
+		const rebaseErrLower = rebaseErr.toLowerCase();
+		if (rebaseErrLower.includes("unstaged changes") || rebaseErrLower.includes("please commit or stash")) {
+			return {
+				ok: false,
+				output: "⚠️ **工作区存在未暂存改动，Git 拒绝变基拉取**：先执行 `/commit -a` 提交全部改动，或 `git stash` 后重试 `/commit-push`。\n\nGit 输出：\n" + rebaseErr,
+				blockedByDirtyWorktree: true,
+			};
+		}
+
 		// 检索冲突文件清单
 		const conflictDiff = await runGit(cwd, ["diff", "--name-only", "--diff-filter=U"]);
 		let conflictFiles = conflictDiff.ok && conflictDiff.stdout.trim()

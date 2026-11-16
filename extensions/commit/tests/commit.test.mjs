@@ -20,7 +20,7 @@ for (const name of ['index', 'src/git', 'src/prompt']) {
   await writeFile(join(root, `${name}.js`), output);
 }
 const { default: register, generateCommitMessage } = await import(pathToFileURL(join(root, 'index.js')));
-const { getStagedFiles } = await import(pathToFileURL(join(root, 'src/git.js')));
+const { getStagedFiles, pushCurrentBranch } = await import(pathToFileURL(join(root, 'src/git.js')));
 const model = { id: '当前模型', provider: '当前提供方' };
 function context(complete) {
   const provider = { streamSimple: (...args) => ({ result: () => complete(...args) }) };
@@ -208,4 +208,44 @@ test('生成失败不提交或推送，文件清单仅包含暂存区', async ()
   assert.equal(git('log', '-1', '--format=%B'), 'fix: 修复角色表现');
   assert.notEqual(git('rev-parse', 'HEAD'), head);
   assert.ok(git('diff', '--name-only', '-z').includes('未暂存.cs'));
+});
+
+test('未暂存改动阻止变基时，报告工作区未提交而不是代码冲突', async () => {
+  const base = join(root, 'push-case');
+  const remote = join(base, 'remote.git');
+  const repo = join(base, 'repo');
+  const other = join(base, 'other');
+  await mkdir(base);
+  const gitAt = cwd => (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const rootGit = gitAt(base);
+  rootGit('init', '--bare', '-q', remote);
+  rootGit('init', '-q', '-b', 'main', repo);
+  const local = gitAt(repo);
+  local('checkout', '-B', 'main');
+  local('config', 'user.name', '测试');
+  local('config', 'user.email', 'test@example.invalid');
+  await writeFile(join(repo, 'a.cs'), '1');
+  local('add', '.');
+  local('commit', '-qm', 'test: 初始化');
+  local('remote', 'add', 'origin', remote);
+  local('push', '-q', '-u', 'origin', 'main');
+  rootGit('clone', '-q', remote, other);
+  const peer = gitAt(other);
+  peer('checkout', '-B', 'main', 'origin/main');
+  peer('config', 'user.name', '他人');
+  peer('config', 'user.email', 'other@example.invalid');
+  await writeFile(join(other, 'b.cs'), '1');
+  peer('add', '.');
+  peer('commit', '-qm', 'test: 远端推进');
+  peer('push', '-q', 'origin', 'main');
+  // 本地提交暂存内容，同时保留另一处未暂存改动，git 会拒绝 pull --rebase。
+  await writeFile(join(repo, 'a.cs'), '2');
+  local('add', 'a.cs');
+  local('commit', '-qm', 'test: 本地提交');
+  await writeFile(join(repo, 'a.cs'), '3');
+  const result = await pushCurrentBranch(repo);
+  assert.equal(result.ok, false);
+  assert.equal(result.blockedByDirtyWorktree, true);
+  assert.equal(result.hasConflict, undefined);
+  assert.match(result.output, /未暂存改动/);
 });
